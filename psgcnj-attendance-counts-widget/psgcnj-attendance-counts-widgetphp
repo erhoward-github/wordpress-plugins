@@ -1,0 +1,302 @@
+<?php
+/*
+Plugin Name: psgcnj-attendance-counts-widget.php
+Plugin URI:  https://psgcnj.biz/talentwp/
+Description: Proof of concept
+Version:     1.0
+Author:      Elaine Howard
+Author URI:  http://www.elainehoward.com
+License:     GPL2
+License URI: https://www.gnu.org/licenses/gpl-2.0.html
+Text Domain: wporg
+Domain Path: /languages
+*/
+
+class psgcnj_attendance_counts_widget extends WP_Widget
+{
+    function __construct()
+    {
+        parent::__construct(false, $name = __('PSGCNJ Attendance Counts Widget'));
+    }
+    
+    function form()
+    {
+        
+    }
+    
+    function update()
+    {
+        
+    }
+
+    function query_attendance_counts_data($conn, &$result)
+    {
+        
+    }
+    
+    private $startDate = '';
+    private $endDate = '';
+    private $dataFile = 'psgcnj-data/attendance-counts.csv';
+    private $loginFile = 'psgcnj-includes/login-info.php';
+    private $basePath = 'https://psgcnj.biz/talentwp/';
+    
+    function build_attendance_counts_form()
+    {
+        $stickyStartDate = isset($_POST['startDate']) ? 'value="' . $_POST['startDate'] . '"' : '';
+        $stickyEndDate = isset($_POST['endDate']) ? 'value="' . $_POST['endDate'] . '"' : '';
+        
+        $html = <<< "__DOC__"
+<form class="form-horizontal" action="" method="POST">
+<div class="form-group">
+<label for="startDate" class="col-sm-2 control-label">Start Date</label>
+<div class="col-sm-10">
+<input type="text" class="form-control" id="startDate" name="startDate" placeholder="mm/dd/yyyy" autocomplete="off" {$stickyStartDate}>
+</div>
+</div>
+
+<div class="form-group">
+<label for="endDate" class="col-sm-2 control-label">End Date</label>
+<div class="col-sm-10">
+<input type="text" class="form-control" id="endDate" name="endDate" placeholder="mm/dd/yyyy" autocomplete="off" {$stickyEndDate}>
+</div>
+</div>
+
+<div class="form-group">
+<div class="col-sm-offset-2 col-sm-10">
+<button type="submit" class="btn btn-primary">Search</button>
+</div>
+</div>
+
+</form>
+__DOC__;
+        return $html;
+    } # end function build_attendance_counts_form()
+    
+    function build_attendance_counts_html(&$result)
+    {
+        $html = <<< "__DOC__"
+<div class="table-responsive">
+<table class="table table-striped table-bordered table-hover table-condensed">
+<caption>General Meeting Attendance</caption>
+<thead><tr>
+<th>Meeting Date</th>
+<th>Number of People</th>
+</tr></thead><tbody>
+__DOC__;
+        while($row = mysqli_fetch_array($result, MYSQLI_NUM))
+        {
+            $html .= '<tr><td>' . 
+                $row[0] . '</td><td>' . 
+                $row[2] . '</td></tr>';
+        }
+        $html .= '</tbody></table></div>';
+        return $html;
+    } # function build_attendance_counts_html(&$result)
+    
+    function build_attendance_counts_csv(&$result)
+    {
+        $file_name = $this->dataFile;
+        $csv = <<< "__DOC__"
+Meeting Date,Number of People\r\n
+__DOC__;
+        mysqli_data_seek($result, 0);
+        while($row = mysqli_fetch_array($result, MYSQLI_NUM))
+        {
+            $csv .= 
+                $row[0] . ',' . 
+                $row[2] . "\r\n";
+        }
+        $file_stream = fopen($file_name, 'w');
+        $number_of_bytes = fwrite($file_stream, $csv);
+        fclose($file_stream);
+        return $csv;
+    } # function build_attendance_counts_csv($result)
+    
+    function widget($args, $instance)
+    {
+        if($_SERVER['REQUEST_METHOD'] == 'GET')
+        {
+            $message .= $this->build_attendance_counts_form();     
+        }
+        else
+        {
+            require($this->loginFile);
+
+            $isOK = TRUE;
+            $result = NULL;
+            $sql = '';
+            $numRows = 0;
+            $row = NULL;
+            $conn = NULL;
+            $csv = '';
+            $dataEntryErrors = array();
+            
+            $conn = @mysqli_connect($host, $usr, $pwd, $db);
+            if(!$conn)
+            {
+                $isOK = FALSE;
+                $message = '<div class="alert alert-warning">' . mysqli_connect_error() . '</div>';
+            }
+                
+            if($isOK)
+            {
+                $startDateUser = mysqli_real_escape_string($conn, strip_tags(trim($_POST['startDate'])));
+                if(strlen($startDateUser))
+                {
+                    $matchFound = preg_match('/^\d\d\/\d\d\/\d\d\d\d$/',$startDateUser) == 1 ? TRUE : FALSE;
+                    if($matchFound)
+                    {
+                        list($startDateMonth, $startDateDay, $startDateYear) = split('[/.-]', $startDateUser);
+                        if(checkdate($startDateMonth, $startDateDay, $startDateYear))
+                        {
+                            $isOk = TRUE;
+                            $this->startDate = $startDateYear . '-' . $startDateMonth . '-' . $startDateDay;
+                        }
+                        else
+                        {
+                            $isOK = FALSE;
+                            $dataEntryErrors[] = 'Enter a valid start date';
+                        }
+                    }
+                    else
+                    {
+                        $isOK = FALSE;
+                        $dataEntryErrors[] = 'Enter the start date in the proper format: mm/dd/yyyy';
+                    }
+                }
+                
+                $endDateUser = mysqli_real_escape_string($conn, strip_tags(trim($_POST['endDate'])));
+                if(strlen($endDateUser))
+                {
+                    $matchFound = preg_match('/^\d\d\/\d\d\/\d\d\d\d$/',$endDateUser) == 1 ? TRUE : FALSE;
+                    if($matchFound)
+                    {
+                        list($endDateMonth, $endDateDay, $endDateYear) = split('[/.-]', $endDateUser);
+                        if(checkdate($endDateMonth, $endDateDay, $endDateYear))
+                        {
+                            $isOk = TRUE;
+                            $this->endDate = $endDateYear . '-' . $endDateMonth . '-' . $endDateDay;
+                        }
+                        else
+                        {
+                            $isOK = FALSE;
+                            $dataEntryErrors[] = 'Enter a valid end date';
+                        }
+                    }
+                    else
+                    {
+                        $isOK = FALSE;
+                        $dataEntryErrors[] = 'Enter the end date in the proper format: mm/dd/yyyy';
+                    }
+                }
+                
+                if($isOK)
+                {
+                    $startDateClause = $this->startDate ? ("meetingDate >= '" . $this->startDate . "' ") : '';
+                    $endDateClause = $this->endDate ? ("meetingDate <= '" . $this->endDate . "' ") : '';
+                    if(strlen($startDateClause))
+                    {
+                        if(strlen($endDateClause))
+                        {
+                            $dateRangeClause = 'AND (' . $startDateClause . ' AND '. $endDateClause. ') ';
+                        }
+                        else
+                        {
+                            $dateRangeClause = 'AND ' . $startDateClause . ' ';
+                        }
+                    }
+                    else
+                    {
+                        if(strlen($endDateClause))
+                        {
+                            $dateRangeClause = 'AND '.  $endDateClause . ' ';
+                        }
+                        else
+                        {
+                            $dateRangeClause = 'AND meetingDate IS NOT NULL ';
+                        }
+                    }
+                }
+                else
+
+                      
+             
+                                                                    
+                                                            
+                {
+                    $message .= '<div class="alert alert-warning"><ul>';
+                    foreach($dataEntryErrors as $dataEntryError)
+                    {
+                        $message .= '<li>' . $dataEntryError . '</li>';
+                    }
+                    $message .= '</ul></div>';
+                }
+                                          
+            }
+            
+            $message .= $this->build_attendance_counts_form();     
+                    
+            if($isOK)
+            {
+                $sql = <<< "__DOC__"
+SELECT DATE_FORMAT(meetingDate, '%d-%b-%Y') AS `Meeting Date`, 
+MeetingType, 
+COUNT(*) AS `Number Of People` 
+FROM Contacts AS c LEFT JOIN Attendance AS a
+ON c.StatusID = a.StatusID 
+WHERE MeetingType = 'General Meeting' 
+{$dateRangeClause}
+GROUP BY meetingDate,MeetingType HAVING COUNT(meetingDate) > 1
+ORDER BY meetingDate DESC
+__DOC__;
+                $result = mysqli_query($conn, $sql);
+                if($result)
+                {
+                    $num_rows = mysqli_num_rows($result);
+                    if($num_rows)
+                    {
+                        $message .= '<div class="alert alert-success" role="alert">Number of records: ' . $num_rows . '</div>';
+                        $message .= 
+                            "<p><a href='" . $this->basePath . $this->dataFile . "'>Download PSGCNJ attendance counts file</a></p>";
+                        $message .= $this->build_attendance_counts_html($result);
+                        $csv = $this->build_attendance_counts_csv($result);
+                        $message .= 
+                            "<p><a href='" . $this->basePath . $this->dataFile . "'>Download PSGCNJ attendance counts file</a></p>";
+                    }
+                    else
+                    {
+                        $message .= '<div class="alert alert-info">No records found</div>';
+                    }
+                }
+                else
+                {
+                    $message .= '<div class="alert alert-danger">Error: ' . mysqli_error($conn) . '</div>';
+                }
+                mysqli_free_result($result);
+                
+                mysqli_close($conn);
+            } # end if($isOK)
+            
+
+
+       
+        } # end if($_SERVER['REQUEST_METHOD'] == 'GET')
+        $html = <<< "DOC"
+<section class="widget widget-members" id="attendance-counts-1">
+$message
+</section>
+<script>
+jQuery(function() {
+    jQuery("#startDate").datepicker({dateFormat:"mm/dd/yy"});
+    jQuery("#endDate").datepicker({dateFormat:"mm/dd/yy"});
+});
+</script>
+DOC;
+        echo $html;
+    } # end function widget($args, $instance)
+} # end class psgcnj_attendance_counts_widget extends WP_Widget
+
+add_action("widgets_init",function(){
+    register_widget("psgcnj_attendance_counts_widget");
+});
+?>
