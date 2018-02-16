@@ -1,302 +1,2631 @@
 <?php
-/*
-Plugin Name: psgcnj-attendance-counts-widget.php
-Plugin URI:  https://psgcnj.biz/talentwp/
-Description: Proof of concept
-Version:     1.0
-Author:      Elaine Howard
-Author URI:  http://www.elainehoward.com
-License:     GPL2
-License URI: https://www.gnu.org/licenses/gpl-2.0.html
-Text Domain: wporg
-Domain Path: /languages
-*/
+/**
+ * Template Name: Membership Database
+ */
+?>
+<?php
+require_once(get_template_directory() . '/utilities.php');
+require_once(get_template_directory() . '/csn-utilities.php');
 
-class psgcnj_attendance_counts_widget extends WP_Widget
+class csn_membership_database_widget
 {
+    private $conn = NULL;
+    
+    public $modes = array('UPDATE','DELETE','INSERT','ERROR','EDIT');
+    public $mode = 'INSERT';
+    
+    private $loginFile = 'db-login-info.php';
+    
+    public $utils = NULL;
+    public $csn_utils = NULL;
+
+    private $host = '';
+    private $usr = '';
+    private $pwd = '';
+    private $db = '';
+
+    private $scriptName = '';
+    public $currentDate = '';
+    private $sql = '';
+    private $currentUser = NULL;
+    public $output = '';
+
+    private $baseSql = '';
+    private $sqlPlaceholder = '__CRITERIA__HERE__';
+
+    # search fields
+    public $firstName = '';
+    public $lastName = '';
+    public $emailAddress = '';
+
+
+    # membership fields
+    public $statusId = 0;
+    
+    public $LName = '';
+    public $FName = '';
+    public $PName = '';
+    public $StAdd = '';
+    public $City = '';
+    public $State = '';
+    public $Zip = '';
+    public $County = '';
+    public $Email = '';
+    public $Cell = '';
+    public $Home = '';
+    # public $Veteran = '';
+    
+    
+    # public $JobTitle = '';
+    # public $PreferredJobTitle = '';
+    
+    
+    public $JobSkills = '';
+    public $JobTitles = '';
+    public $BriefBio = '';
+    public $SpecialTraining = '';
+    public $Notes = '';
+    public $MemberNotes = '';
+    
+    
+    public $PSGReq1 = '';
+    public $PSGReq1Date = '';
+    public $PSGReq2 = '';
+    public $PSGReq2Date = '';
+    public $PSGReq3 = '';
+    public $PSGReq3Date = '';
+    public $PSGReq4 = '';
+    public $PSGReq4Date = '';
+    public $PSGReq5 = '';
+    public $PSGReq5Date = '';
+    
+    public $statusTypeId = 0;
+    public $statusType = '';
+    
+    public $Dear = '';
+    public $Emeritus = 0;
+    public $PSGJoinedDate = '';
+    public $ReferredBy = '';
+    
+    # *********************************************************************************************
+    public $landings = '';
+    public $attendance = '';
+    public $training = '';
+    # *********************************************************************************************
+
+    
     function __construct()
     {
-        parent::__construct(false, $name = __('PSGCNJ Attendance Counts Widget'));
-    }
-    
-    function form()
-    {
+        $this->scriptName = $_SERVER['SCRIPT_NAME'];
         
-    }
-    
-    function update()
-    {
+        $this->utils = new Utilities();
+        $this->csn_utils = new CsnUtilities();
         
-    }
-
-    function query_attendance_counts_data($conn, &$result)
-    {
+        $this->currentDate = $this->utils->get_current_date();
+        $this->utils->debugMode = TRUE;
+        $this->MDate = $this->currentDate;
         
-    }
-    
-    private $startDate = '';
-    private $endDate = '';
-    private $dataFile = 'psgcnj-data/attendance-counts.csv';
-    private $loginFile = 'psgcnj-includes/login-info.php';
-    private $basePath = 'https://psgcnj.biz/talentwp/';
-    
-    function build_attendance_counts_form()
-    {
-        $stickyStartDate = isset($_POST['startDate']) ? 'value="' . $_POST['startDate'] . '"' : '';
-        $stickyEndDate = isset($_POST['endDate']) ? 'value="' . $_POST['endDate'] . '"' : '';
-        
-        $html = <<< "__DOC__"
-<form class="form-horizontal" action="" method="POST">
-<div class="form-group">
-<label for="startDate" class="col-sm-2 control-label">Start Date</label>
-<div class="col-sm-10">
-<input type="text" class="form-control" id="startDate" name="startDate" placeholder="mm/dd/yyyy" autocomplete="off" {$stickyStartDate}>
-</div>
-</div>
+        require(get_template_directory() . '/' . $this->loginFile);
+        $this->host = $host;
+        $this->usr  = $usr;
+        $this->pwd  = $pwd;
+        $this->db   = $db;
 
-<div class="form-group">
-<label for="endDate" class="col-sm-2 control-label">End Date</label>
-<div class="col-sm-10">
-<input type="text" class="form-control" id="endDate" name="endDate" placeholder="mm/dd/yyyy" autocomplete="off" {$stickyEndDate}>
-</div>
-</div>
+        $this->baseSql = <<< "__DOC__"
+SELECT 
+StatusID AS `Status ID`,
+LastName AS `Last Name`, 
+FirstName AS `First Name`, 
+PreferredName AS `Preferred Name`, 
+Address, 
+City, 
+StateOrProvince AS State, 
+PostalCode AS Zip, 
+County, 
+EmailName AS Email, 
+(SELECT `Status Type` FROM `status_types` AS st WHERE st.`status type id` = c.`Status Type ID`) AS `Status`,
 
-<div class="form-group">
-<div class="col-sm-offset-2 col-sm-10">
-<button type="submit" class="btn btn-primary">Search</button>
-</div>
-</div>
+DATE_FORMAT(`PSG Joined Date`, '%m/%d/%Y') AS `Joined Date`,
 
-</form>
+IF(`Work Phone` = '', NULL, CONCAT(SUBSTRING(`Work Phone`, 1, 3), '-', SUBSTRING(`Work Phone`, 4, 3), '-', SUBSTRING(`Work Phone`, -4))) AS `Phone`,
+
+IF(MobilePhone = '', NULL, CONCAT(SUBSTRING(MobilePhone, 1, 3), '-', SUBSTRING(MobilePhone, 4, 3), '-', SUBSTRING(MobilePhone, -4))) AS `Cell`,
+
+PSGReq1,
+DATE_FORMAT(PSGReq1Date, '%m/%d/%Y') AS PSGReq1Date,
+PSGReq2,
+DATE_FORMAT(PSGReq2Date, '%m/%d/%Y') AS PSGReq2Date,
+PSGReq3,
+DATE_FORMAT(PSGReq3Date, '%m/%d/%Y') AS PSGReq3Date,
+PSGReq4,
+DATE_FORMAT(PSGReq4Date, '%m/%d/%Y') AS PSGReq4Date,
+PSGReq5,
+DATE_FORMAT(PSGReq5Date, '%m/%d/%Y') AS PSGReq5Date,
+
+JobTitles AS `Job Titles`,
+SpecialTraining AS `Special Training`,
+JobSkills AS `Job Skills`,
+JobType AS `Job Type`,
+BriefBio AS `Brief Bio`,
+Notes,
+MemberNotes AS `Member Notes`, 
+c.`Status Type ID` AS `Status Type ID`, 
+(SELECT `Status Type` FROM status_types AS st WHERE st.`Status Type ID` = c.`Status Type ID`) AS `Status Type`, 
+
+c.Dear, 
+c.Emeritus, 
+c.ReferredBy AS `Referred By` 
+
+FROM contacts AS c
+WHERE 1 = 1 
+{$this->sqlPlaceholder}
+ORDER BY c.LastName, c.FirstName
 __DOC__;
-        return $html;
-    } # end function build_attendance_counts_form()
+
+        
+    } # end function __construct()
     
-    function build_attendance_counts_html(&$result)
+    public function getSearchResults()
     {
+        return $this->searchResults;
+    } # end public function getSearchResults()
+    
+    public function getCurrentDate()
+    {
+        return $this->currentDate;
+    } # end public function getCurrentDate()
+    
+    public function is_valid_membership_data_entry()
+    {
+        # status id
+        $isOK = 
+            $this->utils->validate_input_types($this->conn, $this->statusId, 'resultsFormStatusId', 'NUMBER', 'Status id is missing');
+        return $isOK;
+    } # end public function is_valid_membership_data_entry()
+    
+    public function is_valid_search_data_entry()
+    {
+        $lastNameIsOK = $this->utils->validate_input_types($this->conn, $this->lastName, 'lastName');
+        $firstNameIsOK = $this->utils->validate_input_types($this->conn, $this->firstName, 'firstName');
+        $emailAddressIsOK = $this->utils->validate_input_types($this->conn, $this->emailAddress, 'emailAddress', 'EMAIL', 'Enter a valid email address');
+        return $lastNameIsOK && $firstNameIsOK && $emailAddressIsOK;
+    } # end public function is_valid_search_data_entry()
+
+    public function build_lookup_data()
+    {
+        # *****************************************************************************************
+        # committee
+        # *****************************************************************************************
+        $this->utils->get_data_for_dropdown($this->conn, $this->csn_utils->committees, 'committees','`Committee ID`','`Committee Name`');
+        
+        # *****************************************************************************************
+        # roles
+        # *****************************************************************************************
+        $this->utils->get_data_for_dropdown($this->conn, $this->csn_utils->roles, 'roles');
+
+        # *****************************************************************************************
+        # meeting types
+        # *****************************************************************************************
+        $this->utils->get_data_for_dropdown($this->conn, $this->csn_utils->meeting_types, 'meeting_types');
+
+        # *****************************************************************************************
+        # act training
+        # *****************************************************************************************
+        $this->utils->get_data_for_dropdown($this->conn, $this->csn_utils->act_training, 'act_training');
+        
+        # *****************************************************************************************
+        # employment status
+        # *****************************************************************************************
+        $this->utils->get_data_for_dropdown($this->conn, $this->csn_utils->employment_status, 'employment_status', 'code', 'decode', 'seq');
+        
+        # *****************************************************************************************
+        # employment type
+        # *****************************************************************************************
+        $this->utils->get_data_for_dropdown($this->conn, $this->csn_utils->employment_type, 'employment_type', 'code', 'decode', 'seq');
+        
+        # *****************************************************************************************
+        # future job search plans
+        # *****************************************************************************************
+        $this->utils->get_data_for_dropdown($this->conn, $this->csn_utils->future_job_search_plans, 'future_job_search_plans', 'code', 'decode', 'seq');
+        
+        # *****************************************************************************************
+        # landed method
+        # *****************************************************************************************
+        $this->utils->get_data_for_dropdown($this->conn, $this->csn_utils->landed_method, 'landed_method', 'code', 'decode', 'seq');
+        
+        # *****************************************************************************************
+        # share contact information
+        # *****************************************************************************************
+        $this->utils->get_data_for_dropdown($this->conn, $this->csn_utils->share_contact_information, 'share_contact_information', 'code', 'decode', 'seq');
+        
+        # *****************************************************************************************
+        # status types
+        # *****************************************************************************************
+        $this->utils->get_data_for_dropdown($this->conn, $this->csn_utils->status_types, 'status_types', '`Status Type ID`', '`Status Type`', '`Status Type`');
+        
+        # *****************************************************************************************
+        # us states
+        # *****************************************************************************************
+        $this->utils->get_data_for_dropdown($this->conn, $this->csn_utils->us_states, 'us_states', 'code', 'decode', 'seq');
+
+        # *****************************************************************************************
+        # veteran status
+        # *****************************************************************************************
+        $this->utils->get_data_for_dropdown($this->conn, $this->csn_utils->veteran_status, 'veteran_status', 'code', 'decode', 'seq');
+        
+        # *****************************************************************************************
+        # work remote
+        # *****************************************************************************************
+        $this->utils->get_data_for_dropdown($this->conn, $this->csn_utils->work_remote, 'work_remote', 'code', 'decode', 'seq');
+        
+        # *****************************************************************************************
+        # general meeting roles
+        # *****************************************************************************************
+        $this->utils->get_data_for_dropdown($this->conn, $this->csn_utils->general_meeting_roles, 'general_meeting_roles', 'code', 'decode', 'seq');
+        
+        # *****************************************************************************************
+        # dear
+        # *****************************************************************************************
+        $this->utils->get_data_for_dropdown($this->conn, $this->csn_utils->dear, 'dear', 'code', 'decode', 'seq');
+
+    }# end function build_lookup_data()
+    
+    public function get_user_input()
+    {
+        $error_count = 0;
+        $is_ok = FALSE;
+        
+        $error_count += ($this->utils->validate_input_types($this->conn, $this->LName, 'LName', 'TEXT', 'Enter the last name', TRUE) ? 0 : 1);
+        $error_count += ($this->utils->validate_input_types($this->conn, $this->FName, 'FName', 'TEXT', 'Enter the first name', TRUE) ? 0 : 1);
+        $error_count += ($this->utils->validate_input_types($this->conn, $this->PName, 'PName', 'TEXT', 'Enter the preferred first name', TRUE) ? 0 : 1);
+        $error_count += ($this->utils->validate_input_types($this->conn, $this->StAdd, 'StAdd') ? 0 : 1);
+        $error_count += ($this->utils->validate_input_types($this->conn, $this->City, 'City') ? 0 : 1);
+        $error_count += ($this->utils->validate_input_types($this->conn, $this->State, 'State') ? 0 : 1);
+        $error_count += ($this->utils->validate_input_types($this->conn, $this->Zip, 'Zip', 'ZIP', 'Enter a valid zip code') ? 0 : 1);
+        $error_count += ($this->utils->validate_input_types($this->conn, $this->County, 'County') ? 0 : 1);
+        $error_count += ($this->utils->validate_input_types($this->conn, $this->Email, 'Email', 'EMAIL', 'Enter a valid email address', TRUE) ? 0 : 1);
+        $error_count += ($this->utils->validate_input_types($this->conn, $this->Cell, 'Cell', 'PHONE', 'Enter a valid phone number') ? 0 : 1);
+        $error_count += ($this->utils->validate_input_types($this->conn, $this->Home, 'Home', 'PHONE', 'Enter a valid phone number') ? 0 : 1);
+
+        $error_count += ($this->utils->validate_input_types($this->conn, $this->JobSkills, 'JobSkills') ? 0 : 1);
+        $error_count += ($this->utils->validate_input_types($this->conn, $this->JobTitles, 'JobTitles') ? 0 : 1);
+        $error_count += ($this->utils->validate_input_types($this->conn, $this->BriefBio, 'BriefBio') ? 0 : 1);
+
+        
+        $error_count += ($this->utils->validate_input_types($this->conn, $this->Notes, 'Notes') ? 0 : 1);
+        $error_count += ($this->utils->validate_input_types($this->conn, $this->MemberNotes, 'MemberNotes') ? 0 : 1);
+        
+        $error_count += ($this->utils->validate_input_types($this->conn, $this->SpecialTraining, 'SpecialTraining') ? 0 : 1);
+
+        $error_count += ($this->utils->validate_input_types($this->conn, $this->PSGReq1, 'PSGReq1', 'TEXT') ? 0 : 1);
+        $error_count += ($this->utils->validate_input_types($this->conn, $this->PSGReq1Date, 'PSGReq1Date', 'DATE', 'Enter a valid MOD1 date') ? 0 : 1);
+        $error_count += ($this->utils->validate_input_types($this->conn, $this->PSGReq2, 'PSGReq2', 'TEXT') ? 0 : 1);
+        $error_count += ($this->utils->validate_input_types($this->conn, $this->PSGReq2Date, 'PSGReq2Date', 'DATE', 'Enter a valid MOD2 date') ? 0 : 1);
+        $error_count += ($this->utils->validate_input_types($this->conn, $this->PSGReq3, 'PSGReq3', 'TEXT') ? 0 : 1);
+        $error_count += ($this->utils->validate_input_types($this->conn, $this->PSGReq3Date, 'PSGReq3Date', 'DATE', 'Enter a valid MOD3 date') ? 0 : 1);
+        $error_count += ($this->utils->validate_input_types($this->conn, $this->PSGReq4, 'PSGReq4', 'TEXT') ? 0 : 1);
+        $error_count += ($this->utils->validate_input_types($this->conn, $this->PSGReq4Date, 'PSGReq4Date', 'DATE', 'Enter a valid MOD4 date') ? 0 : 1);
+        $error_count += ($this->utils->validate_input_types($this->conn, $this->PSGReq5, 'PSGReq5', 'TEXT') ? 0 : 1);
+        $error_count += ($this->utils->validate_input_types($this->conn, $this->PSGReq5Date, 'PSGReq5Date', 'DATE', 'Enter a valid MOD5 date') ? 0 : 1);
+        
+        $error_count += ($this->utils->validate_input_types($this->conn, $this->statusTypeId, 'StatusIdType', 'NUMBER', 'Enter a status type', FALSE) ? 0 : 1);
+        
+        
+        $error_count += ($this->utils->validate_input_types($this->conn, $this->Dear, 'Dear', 'TEXT', 'Enter the last name', FALSE) ? 0 : 1);
+        $error_count += ($this->utils->validate_input_types($this->conn, $this->Emeritus, 'Emeritus', 'NUMBER', 'Enter emeritus status', FALSE) ? 0 : 1);
+        $error_count += ($this->utils->validate_input_types($this->conn, $this->PSGJoinedDate, 'PSGJoinedDate', 'TEXT', 'Enter joined date', FALSE) ? 0 : 1);
+        $error_count += ($this->utils->validate_input_types($this->conn, $this->ReferredBy, 'ReferredBy', 'TEXT', 'Enter referred by name', FALSE) ? 0 : 1);
+        
+# $this->utils->addDebugInfo('get_user_input error count: ' . $error_count);
+        
+        $is_ok = ($error_count > 0 ? FALSE : TRUE);
+        return $is_ok;
+        
+    } # end public function get_user_input()
+    
+    public function build_membership_sql()
+    {
+        $criteria = $this->statusId == '' ? '' : " AND `StatusID` = '" . $this->statusId . "'";
+
+        $sql = str_replace($this->sqlPlaceholder, $criteria, $this->baseSql);
+        
+        return $sql;
+    } # end public function build_membership_sql()
+    
+    public function build_search_sql()
+    {
+        $criteria = 
+            $this->lastName == '' ? '' : 
+                " AND LastName = " . 
+                $this->utils->ready_for_sql($this->lastName, 'TEXT') . 
+                " ";
+        $criteria .= 
+            $this->firstName == '' ? '' : 
+                " AND (FirstName = " . 
+                $this->utils->ready_for_sql($this->firstName, 'TEXT') . 
+                " OR PreferredName = " . 
+                $this->utils->ready_for_sql($this->firstName, 'TEXT') . 
+                ") ";
+        $criteria .= 
+            $this->emailAddress == '' ? '' : 
+                " AND EmailName = " . 
+                $this->utils->ready_for_sql($this->emailAddress, 'TEXT') . 
+                " ";
+            
+        $sql = str_replace($this->sqlPlaceholder, $criteria, $this->baseSql);
+        return $sql;
+    } # end public function build_search_sql()
+    
+    public function build_html(&$result)
+    {
+        $num_rows = mysqli_num_rows($result);
         $html = <<< "__DOC__"
-<div class="table-responsive">
-<table class="table table-striped table-bordered table-hover table-condensed">
-<caption>General Meeting Attendance</caption>
+<div id="searchResults" class="table-responsive">
+<table class="table table-striped table-bordered table-hover table-condensed" id="results-table">
+<caption>Select the record you would like to edit</caption>
 <thead><tr>
-<th>Meeting Date</th>
-<th>Number of People</th>
+<th>Action</th>
+<th>Last Name</th>
+<th>First Name</th>
+<th>Address</th>
+<th>City</th>
+<th>State</th>
+<th>Zip</th>
+<th>Email</th>
+<th>Status</th>
+<th>Joined Date</th>
+
 </tr></thead><tbody>
 __DOC__;
-        while($row = mysqli_fetch_array($result, MYSQLI_NUM))
+        while($row = mysqli_fetch_array($result, MYSQLI_BOTH))
         {
-            $html .= '<tr><td>' . 
-                $row[0] . '</td><td>' . 
-                $row[2] . '</td></tr>';
+            $html .= '<tr data-status-id="' . $row['Status ID'] . '">' . 
+                '<td>' . 
+                
+                '<button type="submit" class="btn btn-default" aria-label="Left Align" ' . 
+                    'title="Edit ' . $row['First Name'] . ' ' . $row['Last Name'] . ' (' . $row['Status ID'] . ')" ' . 
+                    'name="searchResultEditButton">' . 
+                '<span class="glyphicon glyphicon-edit" aria-hidden="true">' . 
+                '</span>' . 
+                '</button>' . 
+                
+                '<button type="submit" class="btn btn-default" aria-label="Left Align" ' . 
+                    'title="Update ' . $row['First Name'] . ' ' . $row['Last Name'] . ' (' . $row['Status ID'] . ')" ' . 
+                    'name="searchResultUpdateButton">' . 
+                '<span class="glyphicon glyphicon-pencil" aria-hidden="true">' . 
+                '</span>' . 
+                '</button>' . 
+                
+                '<button type="submit" class="btn btn-default" aria-label="Left Align" ' . 
+                    'title="Delete ' . $row['First Name'] . ' ' . $row['Last Name'] . ' (' . $row['Status ID'] . ')" ' . 
+                    'name="searchResultDeleteButton">' . 
+                '<span class="glyphicon glyphicon-remove-circle" aria-hidden="true">' . 
+                '</span>' . 
+                '</button>' . 
+                
+                '</td>' . 
+                '<td>' .
+                $row['Last Name'] . '</td><td>' . 
+                $row['First Name'] . '</td><td>' . 
+                $row['Address'] . '</td><td>' . 
+                $row['City'] . '</td><td>' . 
+                $row['State'] . '</td><td>' . 
+                $row['Zip'] . '</td><td>' . 
+                '<a href="mailto:' . $row['Email'] . '">' . $row['Email'] . '</a></td><td>' . 
+                $row['Status'] . '</td><td>' . 
+                $row['Joined Date'] . '</td>' . 
+                '</tr>';
         }
         $html .= '</tbody></table></div>';
+
         return $html;
-    } # function build_attendance_counts_html(&$result)
+    } # end public function build_html(&$result)
     
-    function build_attendance_counts_csv(&$result)
+    public function get_search_data()
     {
-        $file_name = $this->dataFile;
-        $csv = <<< "__DOC__"
-Meeting Date,Number of People\r\n
-__DOC__;
-        mysqli_data_seek($result, 0);
-        while($row = mysqli_fetch_array($result, MYSQLI_NUM))
+        $isOK = TRUE;
+        $result = NULL;
+        $sql = '';
+        $num_rows = 0;
+            
+        if(!$this->is_valid_search_data_entry())
         {
-            $csv .= 
-                $row[0] . ',' . 
-                $row[2] . "\r\n";
+            $this->utils->addDebugInfo("is not valid search data entry. . .");
+            return;
         }
-        $file_stream = fopen($file_name, 'w');
-        $number_of_bytes = fwrite($file_stream, $csv);
-        fclose($file_stream);
-        return $csv;
-    } # function build_attendance_counts_csv($result)
-    
-    function widget($args, $instance)
-    {
-        if($_SERVER['REQUEST_METHOD'] == 'GET')
+        $this->utils->addDebugInfo("is valid search data entry. . .");
+
+
+        $this->sql = $this->build_search_sql();
+# $this->utils->addDebugInfo('get_search_data ' . $this->sql);
+        
+        $result = mysqli_query($this->conn, $this->sql);
+        if($result)
         {
-            $message .= $this->build_attendance_counts_form();     
+            $num_rows = mysqli_num_rows($result);
+            
+            # $this->utils->addUserInfo('Search OK. . .');
+            
+            if($num_rows > 1)
+            {
+                $this->mode = 'INSERT';
+                $this->searchResults = $this->build_html($result);
+                $this->clear_search_form();
+            }
+            elseif($num_rows == 1)
+            {
+                # $this->mode = 'UPDATE';
+                $this->mode = 'EDIT';
+                
+                # $this->searchResults = '<div id="searchResults" class="alert alert-info">Populate membership form</div>';
+                $this->searchResults = $this->populate_membership_form($result);
+                
+                # *****************************************************************************
+                $this->landings = $this->get_landings();
+                $this->attendance = $this->get_attendance();
+                $this->training = $this->get_training();
+                # *****************************************************************************
+                
+                $this->clear_search_form();
+
+            }
+            else
+            {
+                $this->mode = 'INSERT';
+                $this->searchResults = '<div id="searchResults" class="alert alert-info">No records found</div>';
+                
+                $this->firstName = stripslashes(stripslashes($this->firstName));
+                $this->lastName = stripslashes(stripslashes($this->lastName));
+                $this->emailAddress = stripslashes(stripslashes($this->emailAddress));
+                
+            }
+            mysqli_free_result($result);
         }
         else
         {
-            require($this->loginFile);
-
-            $isOK = TRUE;
-            $result = NULL;
-            $sql = '';
-            $numRows = 0;
-            $row = NULL;
-            $conn = NULL;
-            $csv = '';
-            $dataEntryErrors = array();
+            $this->mode = 'ERROR';
+            $this->utils->addDatabaseError(mysqli_error($this->conn));
+        }
+        
+    } # end public function get_search_data()
+    
+    public function populate_membership_form(&$result)
+    {
+        while($row = mysqli_fetch_array($result, MYSQLI_BOTH))
+        {
+            $this->statusId = $row['Status ID'];
+            $this->FName    = $row['First Name'];
+            $this->PName    = $row['Preferred Name'];
+            $this->LName    = $row['Last Name'];
+            $this->StAdd    = $row['Address'];
+            $this->City     = $row['City'];
+            $this->State    = $row['State'];
+            $this->Zip      = $row['Zip'];
+            $this->County   = $row['County'];
+            $this->Email    = $row['Email'];
+            $this->Cell     = $row['Cell'];
+            $this->Home     = $row['Phone'];
             
-            $conn = @mysqli_connect($host, $usr, $pwd, $db);
-            if(!$conn)
-            {
-                $isOK = FALSE;
-                $message = '<div class="alert alert-warning">' . mysqli_connect_error() . '</div>';
-            }
-                
-            if($isOK)
-            {
-                $startDateUser = mysqli_real_escape_string($conn, strip_tags(trim($_POST['startDate'])));
-                if(strlen($startDateUser))
-                {
-                    $matchFound = preg_match('/^\d\d\/\d\d\/\d\d\d\d$/',$startDateUser) == 1 ? TRUE : FALSE;
-                    if($matchFound)
-                    {
-                        list($startDateMonth, $startDateDay, $startDateYear) = split('[/.-]', $startDateUser);
-                        if(checkdate($startDateMonth, $startDateDay, $startDateYear))
-                        {
-                            $isOk = TRUE;
-                            $this->startDate = $startDateYear . '-' . $startDateMonth . '-' . $startDateDay;
-                        }
-                        else
-                        {
-                            $isOK = FALSE;
-                            $dataEntryErrors[] = 'Enter a valid start date';
-                        }
-                    }
-                    else
-                    {
-                        $isOK = FALSE;
-                        $dataEntryErrors[] = 'Enter the start date in the proper format: mm/dd/yyyy';
-                    }
-                }
-                
-                $endDateUser = mysqli_real_escape_string($conn, strip_tags(trim($_POST['endDate'])));
-                if(strlen($endDateUser))
-                {
-                    $matchFound = preg_match('/^\d\d\/\d\d\/\d\d\d\d$/',$endDateUser) == 1 ? TRUE : FALSE;
-                    if($matchFound)
-                    {
-                        list($endDateMonth, $endDateDay, $endDateYear) = split('[/.-]', $endDateUser);
-                        if(checkdate($endDateMonth, $endDateDay, $endDateYear))
-                        {
-                            $isOk = TRUE;
-                            $this->endDate = $endDateYear . '-' . $endDateMonth . '-' . $endDateDay;
-                        }
-                        else
-                        {
-                            $isOK = FALSE;
-                            $dataEntryErrors[] = 'Enter a valid end date';
-                        }
-                    }
-                    else
-                    {
-                        $isOK = FALSE;
-                        $dataEntryErrors[] = 'Enter the end date in the proper format: mm/dd/yyyy';
-                    }
-                }
-                
-                if($isOK)
-                {
-                    $startDateClause = $this->startDate ? ("meetingDate >= '" . $this->startDate . "' ") : '';
-                    $endDateClause = $this->endDate ? ("meetingDate <= '" . $this->endDate . "' ") : '';
-                    if(strlen($startDateClause))
-                    {
-                        if(strlen($endDateClause))
-                        {
-                            $dateRangeClause = 'AND (' . $startDateClause . ' AND '. $endDateClause. ') ';
-                        }
-                        else
-                        {
-                            $dateRangeClause = 'AND ' . $startDateClause . ' ';
-                        }
-                    }
-                    else
-                    {
-                        if(strlen($endDateClause))
-                        {
-                            $dateRangeClause = 'AND '.  $endDateClause . ' ';
-                        }
-                        else
-                        {
-                            $dateRangeClause = 'AND meetingDate IS NOT NULL ';
-                        }
-                    }
-                }
-                else
-
-                      
-             
-                                                                    
-                                                            
-                {
-                    $message .= '<div class="alert alert-warning"><ul>';
-                    foreach($dataEntryErrors as $dataEntryError)
-                    {
-                        $message .= '<li>' . $dataEntryError . '</li>';
-                    }
-                    $message .= '</ul></div>';
-                }
-                                          
-            }
+            $this->SpecialTraining = $row['Special Training'];
+            $this->JobSkills       = $row['Job Skills'];
+            $this->JobTitles       = $row['Job Titles'];
+            $this->BriefBio        = $row['Brief Bio'];
+            $this->Notes           = $row['Notes'];
+            $this->MemberNotes     = $row['Member Notes'];
             
-            $message .= $this->build_attendance_counts_form();     
-                    
-            if($isOK)
+            $this->PSGReq1     = $row['PSGReq1'];
+            $this->PSGReq1Date = $row['PSGReq1Date'];
+            $this->PSGReq2     = $row['PSGReq2'];
+            $this->PSGReq2Date = $row['PSGReq2Date'];
+            $this->PSGReq3     = $row['PSGReq3'];
+            $this->PSGReq3Date = $row['PSGReq3Date'];
+            $this->PSGReq4     = $row['PSGReq4'];
+            $this->PSGReq4Date = $row['PSGReq4Date'];
+            $this->PSGReq5     = $row['PSGReq5'];
+            $this->PSGReq5Date = $row['PSGReq5Date'];
+
+            
+            $this->Dear = $row['Dear'];
+            $this->Emeritus = $row['Emeritus'];
+            $this->PSGJoinedDate = $row['Joined Date'];
+            $this->ReferredBy = $row['Referred By'];
+
+            
+            $this->statusTypeId = $row['Status Type ID'];
+            $this->statusType   = $row['Status Type'];
+$this->utils->addDebugInfo('populate_membership_form status type id: ' . $this->statusTypeId);
+$this->utils->addDebugInfo('populate_membership_form status type: ' . $this->statusType);
+            
+        }
+    } # end public function populate_membership_form(&$result)
+    
+    public function get_membership_data()
+    {
+        $isOK = TRUE;
+        $result = NULL;
+        $sql = '';
+        $num_rows = 0;
+        
+        if($_SERVER['REQUEST_METHOD'] == 'GET')
+        {
+            # $this->utils->addUserInfo('GET');
+        }
+        else
+        {
+
+            if(!$this->is_valid_membership_data_entry())
             {
-                $sql = <<< "__DOC__"
-SELECT DATE_FORMAT(meetingDate, '%d-%b-%Y') AS `Meeting Date`, 
-MeetingType, 
-COUNT(*) AS `Number Of People` 
-FROM Contacts AS c LEFT JOIN Attendance AS a
-ON c.StatusID = a.StatusID 
-WHERE MeetingType = 'General Meeting' 
-{$dateRangeClause}
-GROUP BY meetingDate,MeetingType HAVING COUNT(meetingDate) > 1
-ORDER BY meetingDate DESC
-__DOC__;
-                $result = mysqli_query($conn, $sql);
-                if($result)
-                {
-                    $num_rows = mysqli_num_rows($result);
-                    if($num_rows)
-                    {
-                        $message .= '<div class="alert alert-success" role="alert">Number of records: ' . $num_rows . '</div>';
-                        $message .= 
-                            "<p><a href='" . $this->basePath . $this->dataFile . "'>Download PSGCNJ attendance counts file</a></p>";
-                        $message .= $this->build_attendance_counts_html($result);
-                        $csv = $this->build_attendance_counts_csv($result);
-                        $message .= 
-                            "<p><a href='" . $this->basePath . $this->dataFile . "'>Download PSGCNJ attendance counts file</a></p>";
-                    }
-                    else
-                    {
-                        $message .= '<div class="alert alert-info">No records found</div>';
-                    }
-                }
-                else
-                {
-                    $message .= '<div class="alert alert-danger">Error: ' . mysqli_error($conn) . '</div>';
-                }
+                return;
+            }
+
+            $this->sql = $this->build_membership_sql();
+# $this->utils->addDebugInfo('get_membership_data ' . $this->sql);
+
+            $result = mysqli_query($this->conn, $this->sql);
+            if($result)
+            {
+                $num_rows = mysqli_num_rows($result);
+                $this->searchResults = $this->populate_membership_form($result);
+                
+                # *********************************************************************************
+                $this->landings = $this->get_landings();
+                $this->attendance = $this->get_attendance();
+                $this->training = $this->get_training();
+                # *********************************************************************************
+                
+                $this->clear_search_form();
+                
                 mysqli_free_result($result);
-                
-                mysqli_close($conn);
-            } # end if($isOK)
-            
+            }
+            else
+            {
+                $this->mode = 'ERROR';
+                $this->utils->addDatabaseError(mysqli_error($this->conn));
+            }
 
+            # mysqli_close($this->conn);
 
-       
         } # end if($_SERVER['REQUEST_METHOD'] == 'GET')
-        $html = <<< "DOC"
-<section class="widget widget-members" id="attendance-counts-1">
-$message
-</section>
-<script>
-jQuery(function() {
-    jQuery("#startDate").datepicker({dateFormat:"mm/dd/yy"});
-    jQuery("#endDate").datepicker({dateFormat:"mm/dd/yy"});
-});
-</script>
-DOC;
-        echo $html;
-    } # end function widget($args, $instance)
-} # end class psgcnj_attendance_counts_widget extends WP_Widget
+    } # end public function get_membership_data()
 
-add_action("widgets_init",function(){
-    register_widget("psgcnj_attendance_counts_widget");
-});
+    public function insert_membership_record()
+    {
+        $sql = '';
+        $code = '';
+        $decode = '';
+        $row = NULL;
+        $num_rows = 0;
+        $affected_rows = 0;
+        
+        if(!$this->get_user_input())
+        {
+            $this->utils->addDebugInfo('insert_membership_record bad user input. . .');
+            # *****************************************************************************
+            $this->landings = $this->get_landings();
+            $this->attendance = $this->get_attendance();
+            $this->training = $this->get_training();
+            # *****************************************************************************
+            $this->mode = 'INSERT';
+            return;
+        }
+        $this->utils->addDebugInfo('insert_membership_record good user input. . .');
+        
+        global $wpdb;
+        $wpdb->show_errors();
+        
+# select contact based on first name, last name
+# if one is found, then there is a record already in the database - a duplicate
+# in that case, return those records
+# the user can then select the desired record for view
+# otherwise insert the record as first intended
+        
+        $sqlPrep = <<< "__DOC__"
+SELECT 
+StatusID AS `Status ID`,
+LastName AS `Last Name`, 
+FirstName AS `First Name`, 
+PreferredName AS `Preferred Name`, 
+Address, 
+City, 
+StateOrProvince AS State, 
+PostalCode AS Zip, 
+County, 
+EmailName AS Email, 
+(SELECT `Status Type` FROM `status_types` AS st WHERE st.`status type id` = c.`Status Type ID`) AS `Status`,
+DATE_FORMAT(`PSG Joined Date`, '%%m/%%d/%%Y') AS `Joined Date`,
+IF(`Work Phone` = '', NULL, CONCAT(SUBSTRING(`Work Phone`, 1, 3), '-', SUBSTRING(`Work Phone`, 4, 3), '-', SUBSTRING(`Work Phone`, -4))) AS `Phone`,
+IF(MobilePhone = '', NULL, CONCAT(SUBSTRING(MobilePhone, 1, 3), '-', SUBSTRING(MobilePhone, 4, 3), '-', SUBSTRING(MobilePhone, -4))) AS `Cell`,
+PSGReq1,
+DATE_FORMAT(PSGReq1Date, '%%m/%%d/%%Y') AS PSGReq1Date,
+PSGReq2,
+DATE_FORMAT(PSGReq2Date, '%%m/%%d/%%Y') AS PSGReq2Date,
+PSGReq3,
+DATE_FORMAT(PSGReq3Date, '%%m/%%d/%%Y') AS PSGReq3Date,
+PSGReq4,
+DATE_FORMAT(PSGReq4Date, '%%m/%%d/%%Y') AS PSGReq4Date,
+PSGReq5,
+DATE_FORMAT(PSGReq5Date, '%%m/%%d/%%Y') AS PSGReq5Date,
+JobTitles AS `Job Titles`,
+SpecialTraining AS `Special Training`,
+JobSkills AS `Job Skills`,
+JobType AS `Job Type`,
+BriefBio AS `Brief Bio`,
+Notes,
+MemberNotes AS `Member Notes`, 
+(SELECT `Status Type` FROM status_types AS st WHERE st.`Status Type ID` = c.`Status Type ID`) AS `Status Type`
+FROM contacts AS c
+WHERE 1 = 1
+AND FirstName = %s 
+AND LastName = %s 
+ORDER BY LastName, FirstName
+__DOC__;
+
+        $sql = sprintf($sqlPrep, 
+            $this->utils->ready_for_sql($this->FName, 'TEXT'),
+            $this->utils->ready_for_sql($this->LName, 'TEXT'));
+$this->utils->addDebugInfo('insert_membership_record ' . $sql);
+            
+        $insert_ok = FALSE;
+        $db_error = FALSE;
+        $result = mysqli_query($this->conn, $sql);
+        if($result)
+        {
+            $num_rows = mysqli_num_rows($result);
+            if($num_rows)
+            {
+                # duplicate - insert not ok
+                $this->utils->addUserInfo('Record already exists');
+                
+                $this->searchResults = $this->build_html($result);
+                
+                $insert_ok = FALSE;
+                $db_error = FALSE;
+            }
+            else
+            {
+                # no duplicate - insert ok
+                $insert_ok = TRUE;
+                $db_error = FALSE;
+            }
+            $this->mode = 'INSERT';
+            mysqli_free_result($result);
+            # return;
+        }
+        else
+        {
+            $this->mode = 'ERROR';
+            $this->utils->addDatabaseError(mysqli_error($this->conn));
+            $db_error = TRUE;
+            # return;
+        }
+
+        if(!$insert_ok || $db_error)
+        {
+            return;
+        }
+
+        # proceed with inserting record
+
+        $sqlPrep = <<< "__DOC__"
+INSERT INTO contacts (
+LastName, 
+FirstName, 
+PreferredName, 
+Address, 
+City, 
+StateOrProvince, 
+PostalCode, 
+County, 
+EmailName, 
+MobilePhone, 
+`Work Phone`,
+JobSkills, 
+JobTitles, 
+BriefBio, 
+Notes,
+MemberNotes,
+SpecialTraining,
+PSGReq1,
+PSGReq1Date,
+PSGReq2,
+PSGReq2Date,
+PSGReq3,
+PSGReq3Date,
+PSGReq4,
+PSGReq4Date,
+PSGReq5,
+PSGReq5Date,
+
+`Status Type ID`,
+
+Dear,
+Emeritus,
+`PSG Joined Date`,
+ReferredBy
+
+) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %d, %s, %d, %s, %s)
+__DOC__;
+
+        $sql = sprintf($sqlPrep, 
+            $this->utils->ready_for_sql($this->LName, 'TEXT'),
+            $this->utils->ready_for_sql($this->FName, 'TEXT'), 
+            $this->utils->ready_for_sql($this->PName, 'TEXT'), 
+            $this->utils->ready_for_sql($this->StAdd, 'TEXT'), 
+            $this->utils->ready_for_sql($this->City, 'TEXT'), 
+            $this->utils->ready_for_sql($this->State, 'TEXT'), 
+            $this->utils->ready_for_sql($this->Zip, 'TEXT'), 
+            $this->utils->ready_for_sql($this->County, 'TEXT'), 
+            $this->utils->ready_for_sql($this->Email, 'TEXT'), 
+            $this->utils->ready_for_sql($this->Cell, 'TEXT'), 
+            $this->utils->ready_for_sql($this->Home, 'TEXT'), 
+            $this->utils->ready_for_sql($this->JobSkills, 'TEXT'), 
+            $this->utils->ready_for_sql($this->JobTitles, 'TEXT'), 
+            $this->utils->ready_for_sql($this->BriefBio, 'TEXT'), 
+            $this->utils->ready_for_sql($this->Notes, 'TEXT'), 
+            $this->utils->ready_for_sql($this->MemberNotes, 'TEXT'), 
+            $this->utils->ready_for_sql($this->SpecialTraining, 'TEXT'), 
+            $this->utils->ready_for_sql($this->PSGReq1, 'TEXT'), 
+            $this->utils->ready_for_sql($this->utils->toMySqlFormat($this->PSGReq1Date), 'DATE'),
+            $this->utils->ready_for_sql($this->PSGReq2, 'TEXT'), 
+            $this->utils->ready_for_sql($this->utils->toMySqlFormat($this->PSGReq2Date), 'DATE'),
+            $this->utils->ready_for_sql($this->PSGReq3, 'TEXT'), 
+            $this->utils->ready_for_sql($this->utils->toMySqlFormat($this->PSGReq3Date), 'DATE'),
+            $this->utils->ready_for_sql($this->PSGReq4, 'TEXT'), 
+            $this->utils->ready_for_sql($this->utils->toMySqlFormat($this->PSGReq4Date), 'DATE'),
+            $this->utils->ready_for_sql($this->PSGReq5, 'TEXT'), 
+            $this->utils->ready_for_sql($this->utils->toMySqlFormat($this->PSGReq5Date), 'DATE'),
+            $this->utils->ready_for_sql($this->statusTypeId, 'NUMBER'),
+            
+            $this->utils->ready_for_sql($this->Dear, 'TEXT'), 
+            $this->utils->ready_for_sql($this->Emeritus, 'NUMBER'), 
+            $this->utils->ready_for_sql($this->utils->toMySqlFormat($this->PSGJoinedDate), 'DATE'),
+            $this->utils->ready_for_sql($this->ReferredBy, 'TEXT')
+            
+            );
+
+# $this->utils->addDebugInfo($sql);
+        
+        $result = mysqli_query($this->conn, $sql);
+        if($result)
+        {
+            $affected_rows = mysqli_affected_rows($this->conn);
+            # $this->utils->addUserInfo('Inserted ' . $affected_rows . ($affected_rows > 1 ? ' rows' : ' row') . ', status id: ' . mysqli_insert_id($this->conn));
+            $this->utils->addUserInfo('Success: added record');
+            $this->clear_membership_form();
+        }
+        else
+        {
+            $this->utils->addDatabaseError(mysqli_error($this->conn));
+            $this->mode = 'ERROR';
+        }
+        
+        
+    } # end public function insert_membership_record()
+    
+    public function clear_search_form()
+    {
+        $this->firstName = '';
+        $this->lastName = '';
+        $this->emailAddress = '';
+        
+    } # end public function clear_search_form()
+    
+    public function clear_membership_form()
+    {
+        $this->clear_search_form();
+        
+        $this->LName = '';
+        $this->FName = '';
+        $this->PName = '';
+        $this->StAdd = '';
+        $this->City = '';
+        $this->State = '';
+        $this->Zip = '';
+        $this->County = '';
+        $this->Email = '';
+        $this->Cell = '';
+        $this->Home = '';
+        $this->statusId = 0;
+        
+        $this->JobSkills = '';
+        $this->JobTitles = '';
+        $this->BriefBio = '';
+        $this->SpecialTraining = '';
+        
+        
+        $this->PSGReq1 = '';
+        $this->PSGReq1Date = '';
+        $this->PSGReq2 = '';
+        $this->PSGReq2Date = '';
+        $this->PSGReq3 = '';
+        $this->PSGReq3Date = '';
+        $this->PSGReq4 = '';
+        $this->PSGReq4Date = '';
+        $this->PSGReq5 = '';
+        $this->PSGReq5Date = '';
+        
+        $this->statusTypeId = 0;
+        $this->statusType = '';
+        
+        $this->Dear = '';
+        $this->Emeritus = 0;
+        $this->PSGJoinedDate = '';
+        $this->ReferredBy = '';
+        
+        $this->landings = '<div class="table-responsive">' . 
+            '<table id="landingsTable" class="table table-striped table-bordered table-hover table-condensed">' . 
+            '<thead><tr>' . 
+            
+            '<th>' . 
+            '<button type="button" class="btn btn-default" aria-label="Left Align" title="Add landing record" data-toggle="modal" data-target="#landing-modal">' . 
+            '<span class="glyphicon glyphicon-plus" aria-hidden="true"></span>' . 
+            '</button>' . 
+            '</th>' . 
+            
+            '<th>Landed Date</th>' . 
+            '<th>Date of Form</th>' . 
+            '<th>Employer</th>' . 
+            '<th>Job Title</th>' . 
+            '<th>Employment Type</th>' . 
+            '<th>Staffing Agency/Recruiter Name</th>' . 
+            '<th>Landed Method</th>' . 
+            
+            '</tr></thead><tbody>' . 
+            '</tbody></table></div>';
+        
+        $this->attendance = '<div class="table-responsive">' . 
+            '<table id="attendanceTable" class="table table-striped table-bordered table-hover table-condensed">' . 
+            '<thead><tr>' . 
+            
+            '<th>' . 
+            '<button type="button" class="btn btn-default" aria-label="Left Align" title="Add attendance record" data-toggle="modal" data-target="#attendance-modal">' . 
+            '<span class="glyphicon glyphicon-plus" aria-hidden="true"></span>' . 
+            '</button>' . 
+            '</th>' . 
+            
+            '<th>Meeting Date</th>' . 
+            '<th>Meeting Type</th>' . 
+            '<th>Hours</th>' . 
+            '<th>Committee Name</th>' . 
+            
+            '</tr></thead><tbody>' . 
+            '</tbody></table></div>';
+        
+        $this->training = '<div class="table-responsive">' . 
+            '<table id="trainingTable" class="table table-striped table-bordered table-hover table-condensed">' . 
+            '<thead><tr>' . 
+            
+            '<th>' . 
+            '<button type="button" class="btn btn-default" aria-label="Left Align" title="Add training record" data-toggle="modal" data-target="#training-modal">' . 
+            '<span class="glyphicon glyphicon-plus" aria-hidden="true"></span>' . 
+            '</button>' . 
+            '</th>' . 
+            
+            '<th>Contacts Act Training Name</th>' . 
+            '<th>CSN Req 1</th>' . 
+            '<th>CSN Req 1 Date</th>' . 
+            '<th>CSN Req 2</th>' . 
+            '<th>CSN Req 2 Date</th>' . 
+            '<th>CSN Req 3</th>' . 
+            '<th>CSN Req 3 Date</th>' . 
+            '<th>CSN Req 4</th>' . 
+            '<th>CSN Req 4 Date</th>' . 
+            '<th>CSN Req 5</th>' . 
+            '<th>CSN Req 6 Date</th>' . 
+            
+            '</tr></thead><tbody>' . 
+            '</tbody></table></div>';
+
+        
+        $this->mode = 'INSERT';
+
+    } # end public function clear_membership_form()
+    
+    public function update_membership_record()
+    {
+        $sql = '';
+        $code = '';
+        $decode = '';
+        $row = NULL;
+        $num_rows = 0;
+        $affected_rows = 0;
+        
+        $field_name = 'membershipFormStatusId';
+        if(!isset($_POST[$field_name]))
+        {
+            $isOK = FALSE;
+            $this->mode = 'ERROR';
+            
+            $this->utils->addSystemError('update_membership_record membershipFormStatusId not found');
+            return;
+        }
+        $field_value = strip_tags(trim($_POST[$field_name]));
+        if(empty($field_value))
+        {
+            $isOK = FALSE;
+            $this->mode = 'ERROR';
+            $this->utils->addSystemError('update_membership_record membershipFormStatusId empty');
+            return;
+        }
+        if(!(filter_var($field_value, FILTER_VALIDATE_FLOAT) || filter_var($field_value, FILTER_VALIDATE_INT)))
+        {
+            $isOK = FALSE;
+            $this->mode = 'ERROR';
+            $this->utils->addSystemError('update_membership_record membershipFormStatusId not numeric');
+            return;
+        }
+        $this->statusId = $field_value;
+        
+        
+        # *****************************************************************************************
+        # *****************************************************************************************
+        # *****************************************************************************************
+        $field_name = 'membershipFormStatusType';
+        if(!isset($_POST[$field_name]))
+        {
+            $isOK = FALSE;
+            $this->mode = 'ERROR';
+            
+            $this->utils->addSystemError('update_membership_record membershipFormStatusType not found');
+            return;
+        }
+        $field_value = strip_tags(trim($_POST[$field_name]));
+        if(empty($field_value))
+        {
+            $isOK = FALSE;
+            $this->mode = 'ERROR';
+            $this->utils->addSystemError('update_membership_record membershipFormStatusType empty');
+            return;
+        }
+        $this->statusType = $field_value;
+        # *****************************************************************************************
+        # *****************************************************************************************
+        # *****************************************************************************************
+        
+        if(!$this->get_user_input())
+        {
+            $this->utils->addDebugInfo('update_membership_record bad user input. . .');
+            # *****************************************************************************
+            $this->landings = $this->get_landings();
+            $this->attendance = $this->get_attendance();
+            $this->training = $this->get_training();
+            # *****************************************************************************
+            $this->mode = 'EDIT';
+            return;
+        }
+        $this->utils->addDebugInfo('update_membership_record good user input. . .');
+
+        global $wpdb;
+        $wpdb->show_errors();
+        
+        $sqlPrep = <<< "__DOC__"
+UPDATE contacts SET 
+LastName = %s, 
+FirstName = %s, 
+PreferredName = %s, 
+Address = %s, 
+City = %s, 
+StateOrProvince = %s, 
+PostalCode = %s, 
+County = %s, 
+EmailName = %s, 
+MobilePhone = %s, 
+`Work Phone` = %s,
+
+JobSkills = %s,
+JobTitles = %s,
+BriefBio = %s,
+Notes = %s,
+MemberNotes = %s,
+SpecialTraining = %s,
+
+PSGReq1 = %s,
+PSGReq1Date = %s,
+PSGReq2 = %s,
+PSGReq2Date = %s,
+PSGReq3 = %s,
+PSGReq3Date = %s,
+PSGReq4 = %s,
+PSGReq4Date = %s,
+PSGReq5 = %s,
+PSGReq5Date = %s,
+
+`Status Type ID` = %d, 
+
+Dear = %s, 
+Emeritus = %d, 
+`PSG Joined Date` = %s, 
+ReferredBy = %s 
+
+WHERE StatusID = %d
+__DOC__;
+        $sql = '';
+        
+        $sql = sprintf($sqlPrep, 
+            $this->utils->ready_for_sql($this->LName, 'TEXT'),
+            $this->utils->ready_for_sql($this->FName, 'TEXT'), 
+            $this->utils->ready_for_sql($this->PName, 'TEXT'), 
+            $this->utils->ready_for_sql($this->StAdd, 'TEXT'), 
+            $this->utils->ready_for_sql($this->City, 'TEXT'), 
+            $this->utils->ready_for_sql($this->State, 'TEXT'), 
+            $this->utils->ready_for_sql($this->Zip, 'TEXT'), 
+            $this->utils->ready_for_sql($this->County, 'TEXT'), 
+            $this->utils->ready_for_sql($this->Email, 'TEXT'), 
+            $this->utils->ready_for_sql($this->Cell, 'TEXT'), 
+            $this->utils->ready_for_sql($this->Home, 'TEXT'), 
+            
+            $this->utils->ready_for_sql($this->JobSkills, 'TEXT'), 
+            $this->utils->ready_for_sql($this->JobTitles, 'TEXT'), 
+            $this->utils->ready_for_sql($this->BriefBio, 'TEXT'), 
+            
+            $this->utils->ready_for_sql($this->Notes, 'TEXT'), 
+            $this->utils->ready_for_sql($this->MemberNotes, 'TEXT'), 
+            
+            $this->utils->ready_for_sql($this->SpecialTraining, 'TEXT'), 
+        
+            $this->utils->ready_for_sql($this->PSGReq1, 'TEXT'), 
+            $this->utils->ready_for_sql($this->utils->toMySqlFormat($this->PSGReq1Date), 'DATE'),
+            $this->utils->ready_for_sql($this->PSGReq2, 'TEXT'), 
+            $this->utils->ready_for_sql($this->utils->toMySqlFormat($this->PSGReq2Date), 'DATE'),
+            $this->utils->ready_for_sql($this->PSGReq3, 'TEXT'), 
+            $this->utils->ready_for_sql($this->utils->toMySqlFormat($this->PSGReq3Date), 'DATE'),
+            $this->utils->ready_for_sql($this->PSGReq4, 'TEXT'), 
+            $this->utils->ready_for_sql($this->utils->toMySqlFormat($this->PSGReq4Date), 'DATE'),
+            $this->utils->ready_for_sql($this->PSGReq5, 'TEXT'), 
+            $this->utils->ready_for_sql($this->utils->toMySqlFormat($this->PSGReq5Date), 'DATE'),
+        
+            $this->utils->ready_for_sql($this->statusTypeId, 'NUMBER'), 
+            
+            $this->utils->ready_for_sql($this->Dear, 'TEXT'), 
+            $this->utils->ready_for_sql($this->Emeritus, 'NUMBER'), 
+            $this->utils->ready_for_sql($this->utils->toMySqlFormat($this->PSGJoinedDate), 'DATE'),
+            $this->utils->ready_for_sql($this->ReferredBy, 'TEXT'), 
+        
+            $this->utils->ready_for_sql($this->statusId, 'NUMBER')
+            );
+            
+$this->utils->addDebugInfo($sql);
+        
+        $result = mysqli_query($this->conn, $sql);
+        if($result)
+        {
+            $affected_rows = mysqli_affected_rows($this->conn);
+            # $this->utils->addUserInfo('Updated ' . $affected_rows . ($affected_rows > 1 ? ' rows' : ' row'));
+            $this->utils->addUserInfo('Success: updated record');
+            $this->clear_membership_form();
+        }
+        else
+        {
+            $this->utils->addDatabaseError(mysqli_error($this->conn));
+            $this->mode = 'ERROR';
+        }
+    } # function update_membership_record()
+    
+    public function delete_membership_record()
+    {
+        
+        $sql = '';
+        $code = '';
+        $decode = '';
+        $row = NULL;
+        $num_rows = 0;
+        
+
+        $field_name = 'membershipFormStatusId';
+        if(!isset($_POST[$field_name]))
+        {
+            $isOK = FALSE;
+            $this->mode = 'ERROR';
+            
+            $this->utils->addSystemError('delete_membership_record membershipFormStatusId not found');
+            return;
+        }
+        $field_value = strip_tags(trim($_POST[$field_name]));
+        if(empty($field_value))
+        {
+            $isOK = FALSE;
+            $this->mode = 'ERROR';
+            $this->utils->addSystemError('delete_membership_record membershipFormStatusId empty');
+            return;
+        }
+        if(!(filter_var($field_value, FILTER_VALIDATE_FLOAT) || filter_var($field_value, FILTER_VALIDATE_INT)))
+        {
+            $isOK = FALSE;
+            $this->mode = 'ERROR';
+            $this->utils->addSystemError('delete_membership_record membershipFormStatusId not numeric');
+            return;
+        }
+        $this->statusId = $field_value;
+
+        
+        $this->utils->addDebugInfo('delete_membership_record good user input. . .');
+        
+        global $wpdb;
+        $wpdb->show_errors();
+
+/*
+        $sqlPrep = <<< "__DOC__"
+DELETE FROM contacts WHERE StatusID = %d;
+__DOC__;
+        $sql = $wpdb->prepare($sqlPrep, $this->statusId);
+*/
+
+        $sqlPrep = <<< "__DOC__"
+DELETE FROM contacts WHERE StatusID = %d;
+DELETE FROM attendance WHERE StatusID = %d;
+DELETE FROM landings WHERE status_id = %d;
+__DOC__;
+
+        $sql = sprintf($sqlPrep, 
+            $this->utils->ready_for_sql($this->statusId, 'NUMBER'),
+            $this->utils->ready_for_sql($this->statusId, 'NUMBER'), 
+            $this->utils->ready_for_sql($this->statusId, 'NUMBER'));
+
+        # $sql = $wpdb->prepare($sqlPrep, $this->statusId, $this->statusId, $this->statusId);
+
+
+
+# $this->utils->addDebugInfo($sql);
+        
+        
+        $result = mysqli_multi_query($this->conn, $sql);
+        if($result)
+        {
+            $affected_rows = mysqli_affected_rows($this->conn);
+            # $this->utils->addUserInfo('Deleted ' . $affected_rows . ($affected_rows > 1 ? ' rows' : ' row'));
+            $this->utils->addUserInfo('Success: deleted record');
+            $this->clear_membership_form();
+        }
+        else
+        {
+            $this->utils->addDatabaseError(mysqli_error($this->conn));
+            $this->mode = 'ERROR';
+        }
+    } # function delete_membership_record()
+    
+    public function get_training()
+    {
+        $sql = '';
+        $code = '';
+        $decode = '';
+        $row = NULL;
+        $num_rows = 0;
+        $html = '';
+
+        $sql = <<< "__DOC__"
+SELECT 
+ContactsActTrainingID AS `ContactsActTrainingID`,
+ContactsActTrainingName AS `Contacts Act Training Name`,
+StatusID AS `Status ID`, 
+PSGReq1 AS `CSN Req 1`,
+DATE_FORMAT(PSGReq1Date, '%m/%d/%Y') AS `CSN Req 1 Date`,
+PSGReq2 AS `CSN Req 2`,
+DATE_FORMAT(PSGReq2Date, '%m/%d/%Y') AS `CSN Req 2 Date`,
+PSGReq3 AS `CSN Req 3`,
+DATE_FORMAT(PSGReq3Date, '%m/%d/%Y') AS `CSN Req 3 Date`,
+PSGReq4 AS `CSN Req 4`,
+DATE_FORMAT(PSGReq4Date, '%m/%d/%Y') AS `CSN Req 4 Date`,
+PSGReq5 AS `CSN Req 5`,
+DATE_FORMAT(PSGReq5Date, '%m/%d/%Y') AS `CSN Req 5 Date` 
+FROM contacts_act_training
+WHERE StatusID = {$this->statusId} 
+ORDER BY ContactsActTrainingID
+__DOC__;
+        
+        $this->utils->addDebugInfo($sql);
+        
+        $result = mysqli_query($this->conn, $sql);
+        if($result)
+        {
+            $num_rows = mysqli_num_rows($result);
+            if($num_rows == 0)
+            {
+                # $html = '<div class="alert alert-info" role="alert">No training found.</div>';
+                $html = '<div class="table-responsive">' . 
+                    '<table id="trainingTable" class="table table-striped table-bordered table-hover table-condensed">' . 
+                    '<thead><tr>' . 
+                    
+                    '<th>' . 
+                    '<button type="button" class="btn btn-default" aria-label="Left Align" title="Add training record" data-toggle="modal" data-target="#training-modal">' . 
+                    '<span class="glyphicon glyphicon-plus" aria-hidden="true"></span>' . 
+                    '</button>' . 
+                    '</th>' . 
+                    
+                    '<th>Contacts Act Training Name</th>' . 
+                    '<th>CSN Req 1</th>' . 
+                    '<th>CSN Req 1 Date</th>' . 
+                    '<th>CSN Req 2</th>' . 
+                    '<th>CSN Req 2 Date</th>' . 
+                    '<th>CSN Req 3</th>' . 
+                    '<th>CSN Req 3 Date</th>' . 
+                    '<th>CSN Req 4</th>' . 
+                    '<th>CSN Req 4 Date</th>' . 
+                    '<th>CSN Req 5</th>' . 
+                    '<th>CSN Req 6 Date</th>' . 
+                    
+                    '</tr></thead><tbody>' . 
+                    '</tbody></table></div>';
+            }
+            else
+            {
+                $html = '<div class="table-responsive">' . 
+                    '<table id="trainingTable" class="table table-striped table-bordered table-hover table-condensed">' . 
+                    '<thead><tr>' . 
+
+                    '<th>' . 
+                    '<button type="button" class="btn btn-default" aria-label="Left Align" title="Add training record" data-toggle="modal" data-target="#training-modal">' . 
+                    '<span class="glyphicon glyphicon-plus" aria-hidden="true"></span>' . 
+                    '</button>' . 
+                    '</th>' . 
+                    
+                    '<th>Contacts Act Training Name</th>' . 
+                    '<th>CSN Req 1</th>' . 
+                    '<th>CSN Req 1 Date</th>' . 
+                    '<th>CSN Req 2</th>' . 
+                    '<th>CSN Req 2 Date</th>' . 
+                    '<th>CSN Req 3</th>' . 
+                    '<th>CSN Req 3 Date</th>' . 
+                    '<th>CSN Req 4</th>' . 
+                    '<th>CSN Req 4 Date</th>' . 
+                    '<th>CSN Req 5</th>' . 
+                    '<th>CSN Req 6 Date</th>' . 
+
+                    
+                    '</tr></thead><tbody>';
+                while($row = mysqli_fetch_array($result, MYSQLI_BOTH))
+                {
+                    $html .= '<tr data-training-id="' . $row[0] . '" data-status-id="' . $row[2] . '">';
+                    $html .= 
+                        '<td>' . 
+                        
+                        
+                        '<button type="button" class="btn btn-default" aria-label="Left Align" title="Edit training record ' . $row[0] . 
+                            '" data-toggle="modal" data-target="#training-modal">' . 
+                        '<span class="glyphicon glyphicon-edit" aria-hidden="true"></span>' . 
+                        '</button>' . 
+                        '<button type="button" class="btn btn-default" aria-label="Left Align" title="Delete training record ' . $row[0] . 
+                            '" data-toggle="modal" data-target="#training-modal">' . 
+                        '<span class="glyphicon glyphicon-remove" aria-hidden="true"></span>' . 
+                        '</button>' . 
+                        
+                        
+                        '</td>' .
+                        
+                        '<td>' . $row[1] . '</td>' .
+                        '<td>' . $row[3] . '</td>' .
+                        '<td>' . $row[4] . '</td>' .
+                        '<td>' . $row[5] . '</td>' .
+                        '<td>' . $row[6] . '</td>' .
+                        '<td>' . $row[7] . '</td>' .
+                        '<td>' . $row[8] . '</td>' .
+                        '<td>' . $row[9] . '</td>' .
+                        '<td>' . $row[10] . '</td>' .
+                        '<td>' . $row[11] . '</td>' .
+                        '<td>' . $row[12] . '</td>'
+                        ;
+                    $html .= '</tr>';
+                }
+                $html .= '</tbody></table></div>';
+            }
+            mysqli_free_result($result);
+        }
+        else
+        {
+            $this->mode = 'ERROR';
+            $this->utils->addDatabaseError(mysqli_error($this->conn));
+            $html = '<div class="alert alert-info" role="alert">' . mysqli_error($this->conn) . '</div>';
+        }
+
+        return $html;
+
+    } # end public function get_training()
+    
+    public function get_landings()
+    {
+        $sql = '';
+        $code = '';
+        $decode = '';
+        $row = NULL;
+        $num_rows = 0;
+        $html = '';
+        
+
+        $sql = <<< "__DOC__"
+SELECT 
+DATE_FORMAT(l.landing_date, '%m/%d/%Y') AS `Landed Date`,
+DATE_FORMAT(l.date_of_form, '%m/%d/%Y') AS `Date of Form`,
+l.employer AS Employer,
+l.job_title AS `Job Title`,
+(SELECT et.decode FROM employment_type AS et WHERE et.code = l.employment_type) AS `Employment Type`,
+l.staffing_agency_recruiter_name AS `Staffing Agency/Recruiter Name`,
+(SELECT lm.decode FROM landed_method AS lm WHERE lm.code = l.landed_method) AS `Landed Method`,
+l.status_id AS `Status ID`,
+l.landed_id AS `Landed ID` 
+FROM landings AS l 
+WHERE l.status_id = {$this->statusId}
+ORDER BY l.landing_date DESC
+__DOC__;
+        
+        
+/*
+SELECT 
+DATE_FORMAT(l.landing_date, '%m/%d/%Y') AS `Landed Date`,
+DATE_FORMAT(l.date_of_form, '%m/%d/%Y') AS `Date of Form`,
+l.employer AS Employer,
+l.job_title AS `Job Title`,
+l.employment_type,
+(SELECT et.decode FROM employment_type AS et WHERE et.code = l.employment_type) AS `Employment Type`,
+l.staffing_agency_recruiter_name AS `Staffing Agency/Recruiter Name`,
+l.landed_method,
+(SELECT lm.decode FROM landed_method AS lm WHERE lm.code = l.landed_method) AS `Landed Method`,
+l.status_id AS `Status ID`,
+l.landed_id AS `Landed ID`
+
+,city
+,state
+,(SELECT us.decode FROM us_states AS us WHERE us.code = l.state) AS `State`
+,zip
+,email
+,phone
+,work_remote
+,(SELECT wr.decode FROM work_remote AS wr WHERE wr.code = l.work_remote) AS `Work Remote`
+,share_contact_information
+,(SELECT sci.decode FROM share_contact_information AS sci WHERE sci.code = l.share_contact_information) AS `Work Remote`
+,length_of_contract_months
+,length_of_contract_years
+,length_of_search_months
+,length_of_search_years
+,future_job_search_plans
+,(SELECT fjsp.decode FROM future_job_search_plans AS fjsp WHERE fjsp.code = l.future_job_search_plans) AS `Future Job Search Plans`
+,landed_method_other AS `Landed Method (Other)`
+,`status`
+,(SELECT es.decode FROM employment_status AS es WHERE es.code = l.status) AS `Status`
+
+FROM landings AS l 
+WHERE l.status_id IN (1964,1952,1517,1113,2082,1494,689,1585,164,1030)
+ORDER BY l.status_id ASC, l.landing_date DESC;
+*/
+        
+        $this->utils->addDebugInfo($sql);
+
+        
+        $result = mysqli_query($this->conn, $sql);
+        if($result)
+        {
+            $num_rows = mysqli_num_rows($result);
+            if($num_rows == 0)
+            {
+                # $html = '<div class="alert alert-info" role="alert">No landings found.</div>';
+                $html = '<div class="table-responsive">' . 
+                    '<table id="landingsTable" class="table table-striped table-bordered table-hover table-condensed">' . 
+                    '<thead><tr>' . 
+                    
+                    '<th>' . 
+                    '<button type="button" class="btn btn-default" aria-label="Left Align" title="Add landing record" data-toggle="modal" data-target="#landing-modal">' . 
+                    '<span class="glyphicon glyphicon-plus" aria-hidden="true"></span>' . 
+                    '</button>' . 
+                    '</th>' . 
+                    
+                    '<th>Landed Date</th>' . 
+                    '<th>Date of Form</th>' . 
+                    '<th>Employer</th>' . 
+                    '<th>Job Title</th>' . 
+                    '<th>Employment Type</th>' . 
+                    '<th>Staffing Agency/Recruiter Name</th>' . 
+                    '<th>Landed Method</th>' . 
+                    '</tr></thead><tbody>' . 
+                    '</tbody></table></div>';
+            }
+            else
+            {
+                $html = '<div class="table-responsive">' . 
+                    '<table id="landingsTable" class="table table-striped table-bordered table-hover table-condensed">' . 
+                    '<thead><tr>' . 
+
+                    '<th>' . 
+                    '<button type="button" class="btn btn-default" aria-label="Left Align" title="Add landing record" data-toggle="modal" data-target="#landing-modal">' . 
+                    '<span class="glyphicon glyphicon-plus" aria-hidden="true"></span>' . 
+                    '</button>' . 
+                    '</th>' . 
+                    
+                    '<th>Landed Date</th>' . 
+                    '<th>Date of Form</th>' . 
+                    '<th>Employer</th>' . 
+                    '<th>Job Title</th>' . 
+                    '<th>Employment Type</th>' . 
+                    '<th>Staffing Agency/Recruiter Name</th>' . 
+                    '<th>Landed Method</th>' . 
+                    '</tr></thead><tbody>';
+                while($row = mysqli_fetch_array($result, MYSQLI_BOTH))
+                {
+                    $html .= '<tr data-landed-id="' . $row[7] . '" data-status-id="' . $row[8] . '">';
+                    $html .= 
+                        '<td>' . 
+                        
+                        
+                        '<button type="button" class="btn btn-default" aria-label="Left Align" title="Edit landing record ' . $row[8] . 
+                            '" data-toggle="modal" data-target="#landing-modal">' . 
+                        '<span class="glyphicon glyphicon-edit" aria-hidden="true"></span>' . 
+                        '</button>' . 
+                        '<button type="button" class="btn btn-default" aria-label="Left Align" title="Delete landing record ' . $row[8] . 
+                            '" data-toggle="modal" data-target="#landing-modal">' . 
+                        '<span class="glyphicon glyphicon-remove" aria-hidden="true"></span>' . 
+                        '</button>' . 
+                        
+                        
+                        '</td>' .
+                        '<td>' . $row[0] . '</td>' .
+                        '<td>' . $row[1] . '</td>' .
+                        '<td>' . $row[2] . '</td>' .
+                        '<td>' . $row[3] . '</td>' .
+                        '<td>' . $row[4] . '</td>' .
+                        '<td>' . $row[5] . '</td>' .
+                        '<td>' . $row[6] . '</td>';
+                    $html .= '</tr>';
+                }
+                $html .= '</tbody></table></div>';
+            }
+            mysqli_free_result($result);
+        }
+        else
+        {
+            $this->mode = 'ERROR';
+            $this->utils->addDatabaseError(mysqli_error($this->conn));
+            $html = '<div class="alert alert-info" role="alert">' . mysqli_error($this->conn) . '</div>';
+        }
+
+        return $html;
+    } # end public function get_landings()
+
+    public function get_attendance()
+    {
+        $sql = '';
+        $code = '';
+        $decode = '';
+        $row = NULL;
+        $num_rows = 0;
+        
+        $sql = <<< "__DOC__"
+SELECT 
+a.StatusID AS `Status ID`, 
+DATE_FORMAT(a.MeetingDate, '%m/%d/%Y') AS `Meeting Date`,
+a.MeetingType AS `Meeting Type`,
+a.Hours,
+IFNULL((SELECT `Committee Name` FROM committees AS c WHERE c.`Committee ID` = a.CommitteeID), 'N/A') AS `Committee Name`, 
+a.AttendanceID AS `Attendance ID` 
+FROM attendance AS a
+WHERE a.StatusID = {$this->statusId}
+ORDER BY a.MeetingDate DESC
+__DOC__;
+        
+$this->utils->addDebugInfo($sql);
+        $html = '';
+        
+        $result = mysqli_query($this->conn, $sql);
+        if($result)
+        {
+            $num_rows = mysqli_num_rows($result);
+            if($num_rows == 0)
+            {
+                # $html = '<div class="alert alert-info" role="alert">No attendance found.</div>';
+                $html = '<div class="table-responsive">' . 
+                    '<table id="attendanceTable" class="table table-striped table-bordered table-hover table-condensed">' . 
+                    '<thead><tr>' . 
+                    
+                    '<th>' . 
+                    '<button type="button" class="btn btn-default" aria-label="Left Align" title="Add attendance record" data-toggle="modal" data-target="#attendance-modal">' . 
+                    '<span class="glyphicon glyphicon-plus" aria-hidden="true"></span>' . 
+                    '</button>' . 
+                    '</th>' . 
+                    
+                    '<th>Meeting Date</th>' . 
+                    '<th>Meeting Type</th>' . 
+                    '<th>Hours</th>' . 
+                    '<th>Committee Name</th>' . 
+                    '</tr></thead><tbody>' . 
+                    '</tbody></table></div>';
+            }
+            else
+            {
+                $html = '<div class="table-responsive">' . 
+                    '<table id="attendanceTable" class="table table-striped table-bordered table-hover table-condensed">' . 
+                    '<thead><tr>' . 
+                    
+                    '<th>' . 
+                    '<button type="button" class="btn btn-default" aria-label="Left Align" title="Add attendance record" data-toggle="modal" data-target="#attendance-modal">' . 
+                    '<span class="glyphicon glyphicon-plus" aria-hidden="true"></span>' . 
+                    '</button>' . 
+                    '</th>' . 
+                    
+                    '<th>Meeting Date</th>' . 
+                    '<th>Meeting Type</th>' . 
+                    '<th>Hours</th>' . 
+                    '<th>Committee Name</th>' . 
+                    '</tr></thead><tbody>';
+                while($row = mysqli_fetch_array($result, MYSQLI_BOTH))
+                {
+                    $html .= '<tr data-attendance-id="' . $row[5] . '" data-status-id="' . $row[0] . '">';
+                    $html .= 
+                        '<td>' .
+                        
+                        
+                        '<button type="button" class="btn btn-default" aria-label="Left Align" title="Edit attendance record ' . $row[5] . 
+                            '" data-toggle="modal" data-target="#attendance-modal">' . 
+                        '<span class="glyphicon glyphicon-edit" aria-hidden="true"></span>' . 
+                        '</button>' . 
+                        '<button type="button" class="btn btn-default" aria-label="Left Align" title="Delete attendance record ' . $row[5] . 
+                            '" data-toggle="modal" data-target="#attendance-modal">' . 
+                        '<span class="glyphicon glyphicon-remove" aria-hidden="true"></span>' . 
+                        '</button>' . 
+                        
+                        
+                        '</td>' .
+                        '<td>' . $row[1] . '</td>' .
+                        '<td>' . $row[2] . '</td>' .
+                        '<td>' . $row[3] . '</td>' .
+                        '<td>' . $row[4] . '</td>';
+                    $html .= '</tr>';
+                }
+                $html .= '</tbody></table></div>';
+            }
+            mysqli_free_result($result);
+        }
+        else
+        {
+            $this->mode = 'ERROR';
+            $this->utils->addDatabaseError(mysqli_error($this->conn));
+            $html = '<div class="alert alert-info" role="alert">' . mysqli_error($this->conn) . '</div>';
+        }
+
+        return $html;
+    } # end public function get_attendance()
+    
+    public function get_data()
+    {
+        $this->conn = @mysqli_connect($this->host, $this->usr, $this->pwd, $this->db);
+        if(!$this->conn)
+        {
+            $this->mode = 'ERROR';
+            $this->utils->addSystemError(mysqli_connect_error());
+            return;
+        }
+    
+        $this->build_lookup_data();
+
+        if($_SERVER['REQUEST_METHOD'] == 'GET')
+        {
+            $this->mode = 'INSERT';
+            
+            $this->landings = '<div class="table-responsive">' . 
+                '<table id="landingsTable" class="table table-striped table-bordered table-hover table-condensed">' . 
+                '<thead><tr>' . 
+                
+                '<th>' . 
+                '<button type="button" class="btn btn-default" aria-label="Left Align" title="Add landing record" data-toggle="modal" data-target="#landing-modal">' . 
+                '<span class="glyphicon glyphicon-plus" aria-hidden="true"></span>' . 
+                '</button>' . 
+                '</th>' . 
+                
+                '<th>Landed Date</th>' . 
+                '<th>Date of Form</th>' . 
+                '<th>Employer</th>' . 
+                '<th>Job Title</th>' . 
+                '<th>Employment Type</th>' . 
+                '<th>Staffing Agency/Recruiter Name</th>' . 
+                '<th>Landed Method</th>' . 
+                
+                '</tr></thead><tbody>' . 
+                '</tbody></table></div>';
+            
+            $this->attendance = '<div class="table-responsive">' . 
+                '<table id="attendanceTable" class="table table-striped table-bordered table-hover table-condensed">' . 
+                '<thead><tr>' . 
+                
+                '<th>' . 
+                '<button type="button" class="btn btn-default" aria-label="Left Align" title="Add attendance record" data-toggle="modal" data-target="#attendance-modal">' . 
+                '<span class="glyphicon glyphicon-plus" aria-hidden="true"></span>' . 
+                '</button>' . 
+                '</th>' . 
+                
+                '<th>Meeting Date</th>' . 
+                '<th>Meeting Type</th>' . 
+                '<th>Hours</th>' . 
+                '<th>Committee Name</th>' . 
+                '</tr></thead><tbody>' . 
+                '</tbody></table></div>';
+                
+            $this->training = '<div class="table-responsive">' . 
+                '<table id="trainingTable" class="table table-striped table-bordered table-hover table-condensed">' . 
+                '<thead><tr>' . 
+                
+                '<th>' . 
+                '<button type="button" class="btn btn-default" aria-label="Left Align" title="Add training record" data-toggle="modal" data-target="#training-modal">' . 
+                '<span class="glyphicon glyphicon-plus" aria-hidden="true"></span>' . 
+                '</button>' . 
+                '</th>' . 
+                
+                '<th>Contacts Act Training Name</th>' . 
+                '<th>CSN Req 1</th>' . 
+                '<th>CSN Req 1 Date</th>' . 
+                '<th>CSN Req 2</th>' . 
+                '<th>CSN Req 2 Date</th>' . 
+                '<th>CSN Req 3</th>' . 
+                '<th>CSN Req 3 Date</th>' . 
+                '<th>CSN Req 4</th>' . 
+                '<th>CSN Req 4 Date</th>' . 
+                '<th>CSN Req 5</th>' . 
+                '<th>CSN Req 6 Date</th>' . 
+                
+                '</tr></thead><tbody>' . 
+                '</tbody></table></div>';
+            
+            
+            mysqli_close($this->conn);
+            return;
+        } # end if($_SERVER['REQUEST_METHOD'] == 'GET')
+        
+        if(isset($_POST['membershipSearchButton']))
+        {
+            $this->get_search_data();
+        }
+        elseif(isset($_POST['membershipInsertButton']))
+        {
+            $this->insert_membership_record();
+        }
+        elseif(isset($_POST['membershipUpdateButton']))
+        {
+            $this->update_membership_record();
+        }
+        elseif(isset($_POST['membershipDeleteButton']))
+        {
+            $this->delete_membership_record();
+        }
+        elseif(isset($_POST['searchResultEditButton']))
+        {
+            $this->mode = 'EDIT';
+            $this->get_membership_data();
+        }
+        elseif(isset($_POST['searchResultUpdateButton']))
+        {
+            $this->mode = 'UPDATE';
+            $this->get_membership_data();
+        }
+        elseif(isset($_POST['searchResultDeleteButton']))
+        {
+            $this->mode = 'DELETE';
+            $this->get_membership_data();
+        }
+        elseif(isset($_POST['membershipClearButton']))
+        {
+            $this->mode = 'INSERT';
+            $this->clear_membership_form();
+        }
+        elseif(isset($_POST['membershipResetButton']))
+        {
+            $this->mode = 'INSERT';
+            $this->clear_membership_form();
+        }
+        else
+        {
+            $this->mode = 'ERROR';
+            $this->utils->addSystemError('Unknown action getting data. . .');
+        }
+        
+        mysqli_close($this->conn);
+        
+    } # end public function get_data()
+
+} # end class csn_membership_database_widget
+
+$csn = new csn_membership_database_widget();
+$csn->get_data();
 ?>
+
+<?php include("header.php"); ?>
+
+<!-- begin container -->
+<div class="container main-content" id="membershipDatabase">
+      
+<?php if($csn->utils->debugMode) : ?>
+<h2 style="color:red;font-weight:bold;">Under development!</h2>
+<?php endif; ?>
+
+<?php echo $csn->utils->get_user_feedback(); ?>
+
+<h1 title="<?php echo $csn->statusId; ?>">Membership <?php if($csn->mode == 'EDIT' || $csn->mode == 'UPDATE' || $csn->mode == 'DELETE') { echo ' - ' . $csn->FName . ' ' . $csn->LName . ' (' . $csn->statusType . ')'; } ?></h1>
+
+<?php echo $csn->output; ?>
+
+<!-- ****************************************************************************************** -->
+<!-- begin search form -->
+<!-- ****************************************************************************************** -->
+<section>
+    <h2>Search Criteria</h2>
+    <form class="form-horizontal" 
+        id="searchForm" 
+        name="searchForm" 
+        action="" 
+        method="POST" 
+        autocomplete="off" 
+        >
+        
+        <div class="row">
+            <div class="col-md-9">
+            
+                <div class="form-group">
+                    <label for="lastName" class="col-sm-2 control-label">Last Name</label>
+                    <div class="col-sm-10">
+                        <input type="text" class="form-control input-sm" id="lastName" name="lastName" placeholder="Last Name" 
+                            value="<?php echo $csn->lastName; ?>">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="firstName" class="col-sm-2 control-label">First Name</label>
+                    <div class="col-sm-10">
+                        <input type="text" class="form-control input-sm" id="firstName" name="firstName" placeholder="First Name"
+                            value="<?php echo $csn->firstName; ?>">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="emailAddress" class="col-sm-2 control-label">Email</label>
+                    <div class="col-sm-10">
+                        <input type="text" class="form-control input-sm" id="emailAddress" name="emailAddress" placeholder="Email"
+                            value="<?php echo $csn->emailAddress; ?>">
+                    </div>
+                </div>
+            
+            </div>
+            <div class="col-md-3">
+            
+                <div class="form-group">
+                    <div class="col-sm-offset-2 col-sm-10">
+                        <button id="membershipSearchButton" name="membershipSearchButton" type="submit" class="btn btn-block btn-primary">Search</button>
+                        <button id="membershipResetButton" name="membershipResetButton" type="reset" class="btn btn-block btn-default">Clear</button>
+                    </div>
+                </div>
+            
+            </div>
+        </div>
+    </form>
+</section>
+<!-- ****************************************************************************************** -->
+<!-- end search form -->
+<!-- ****************************************************************************************** -->
+
+<!-- ****************************************************************************************** -->
+<!-- begin result form -->
+<!-- ****************************************************************************************** -->
+<section>
+    <!-- <h2>Search Results</h2> -->
+    <form id="resultsForm" name="resultsForm" action="" method="POST" autocomplete="off">
+        <input type="hidden" id="resultsFormStatusId" name="resultsFormStatusId" value="">
+
+<?php
+    echo $csn->getSearchResults();
+?>
+    </form>
+</section>
+<!-- ****************************************************************************************** -->
+<!-- end result form -->
+<!-- ****************************************************************************************** -->
+
+<!-- ****************************************************************************************** -->
+<!-- begin membership form -->
+<!-- ****************************************************************************************** -->
+<section>
+    <hr>
+    <h2>Member Information</h2>
+    <form class="form-horizontal" 
+        id="membershipForm" 
+        name="membershipForm" 
+        action="" 
+        method="POST">
+
+<input type="hidden" id="membershipFormStatusId"   name="membershipFormStatusId"   value="<?php echo $csn->statusId; ?>">
+<input type="hidden" id="membershipFormButtonUsed" name="membershipFormButtonUsed" value="membershipUpdateButton">
+<input type="hidden" id="membershipFormStatusType" name="membershipFormStatusType" value="<?php echo $csn->statusType; ?>">
+        
+<!-- begin row -->
+<div class="row">
+
+    <!-- begin left column -->
+    <div class="col-md-9">
+        
+        
+        <!-- Nav tabs -->
+        <ul class="nav nav-tabs" role="tablist">
+            <li role="presentation" class="active"><a href="#contact" aria-controls="contact" role="tab" data-toggle="tab">Contact</a></li>
+            <li role="presentation"><a href="#attendance" aria-controls="attendance" role="tab" data-toggle="tab">Attendance</a></li>
+            <li role="presentation"><a href="#jobSkillsAndBio" aria-controls="jobSkillsAndBio" role="tab" data-toggle="tab">Job Skills and Bio</a></li>
+            <li role="presentation"><a href="#training" aria-controls="training" role="tab" data-toggle="tab">Training</a></li>
+            <!--
+            <li role="presentation"><a href="#committees" aria-controls="committees" role="tab" data-toggle="tab">Committees</a></li>
+            -->
+            <li role="presentation"><a href="#landings" aria-controls="landings" role="tab" data-toggle="tab">Landings</a></li>
+            <li role="presentation"><a href="#notes" aria-controls="notes" role="tab" data-toggle="tab">Notes</a></li>
+        </ul>
+        
+<?php if($csn->mode == 'DELETE' || $csn->mode == 'ERROR') : ?>
+<!-- ****************************************************************************************** -->
+<!-- begin fieldset -->
+<!-- ****************************************************************************************** -->
+<fieldset disabled>
+<?php endif; ?>
+
+<!-- ****************************************************************************************** -->
+<!-- begin tab content panes -->
+<!-- ****************************************************************************************** -->
+<div class="tab-content">
+  
+<!-- ****************************************************************************************** -->
+<!-- begin contact tab panel -->
+<!-- ****************************************************************************************** -->
+<div role="tabpanel" class="tab-pane active" id="contact">
+    
+<div class="form-group">
+    <label for="FName" class="col-sm-2 control-label"><span class="required">* </span>First Name</label>
+    <div class="col-sm-10">
+        <input type="text" class="form-control input-sm" id="FName" name="FName" placeholder="First Name" maxlength="50" value="<?php echo $csn->FName; ?>" required>
+    </div>
+</div>
+<div class="form-group">
+    <label for="PName" class="col-sm-2 control-label"><span class="required">* </span>Preferred Name</label>
+    <div class="col-sm-10">
+        <input type="text" class="form-control input-sm" id="PName" name="PName" placeholder="Preferred Name" maxlength="50" value="<?php echo $csn->PName; ?>" required>
+    </div>
+</div>
+<div class="form-group">
+    <label for="LName" class="col-sm-2 control-label"><span class="required">* </span>Last Name</label>
+    <div class="col-sm-10">
+        <input type="text" class="form-control input-sm" id="LName" name="LName" placeholder="Last Name" maxlength="50" value="<?php echo $csn->LName; ?>" required>
+    </div>
+</div>
+<div class="form-group">
+    <label for="Email" class="col-sm-2 control-label"><?php if($csn->mode == 'INSERT') { echo '<span class="required">* </span>'; } ?>Email</label>
+    <div class="col-sm-10">
+        <input type="Email" class="form-control input-sm" id="Email" name="Email" placeholder="Email" maxlength="50" value="<?php echo $csn->Email; ?>" 
+        <?php if($csn->mode == 'INSERT') { echo 'required'; } ?>
+        >
+    </div>
+</div>
+
+<div class="form-group">
+    <label for="Dear" class="col-sm-2 control-label">Dear</label>
+    <div class="col-sm-10">
+        <select id="Dear" name="Dear" size="1" class="form-control input-sm">
+            <option value="" selected>Select an item</option>
+            <?php $csn->utils->build_dropdown($csn->csn_utils->dear, ($csn->Dear ? $csn->Dear : '')); ?>
+        </select>
+    </div>
+</div>
+
+<div class="form-group">
+    <label for="StAdd" class="col-sm-2 control-label">Address</label>
+    <div class="col-sm-10">
+        <input type="text" class="form-control input-sm" id="StAdd" name="StAdd" placeholder="Address" maxlength="255" value="<?php echo $csn->StAdd; ?>">
+    </div>
+</div>
+<div class="form-group">
+    <label for="City" class="col-sm-2 control-label">City</label>
+    <div class="col-sm-10">
+        <input type="text" class="form-control input-sm" id="City" name="City" placeholder="City" maxlength="50" value="<?php echo $csn->City; ?>">
+    </div>
+</div>
+<div class="form-group">
+    <label for="State" class="col-sm-2 control-label">State</label>
+    <div class="col-sm-10">
+<select id="State" name="State" size="1" class="form-control input-sm">
+<!-- <option value="">Select an item</option> -->
+<?php $csn->utils->build_dropdown($csn->csn_utils->us_states, ($csn->State ? $csn->State : 'NJ')); ?>
+</select>
+    </div>
+</div>
+<div class="form-group">
+    <label for="Zip" class="col-sm-2 control-label">Zip</label>
+    <div class="col-sm-10">
+        <input type="text" class="form-control input-sm" id="Zip" name="Zip" placeholder="Zip" maxlength="20" value="<?php echo $csn->Zip; ?>">
+    </div>
+</div>
+<div class="form-group">
+    <label for="County" class="col-sm-2 control-label">County</label>
+    <div class="col-sm-10">
+        <input type="text" class="form-control input-sm" id="County" name="County" placeholder="County" maxlength="50" value="<?php echo $csn->County; ?>">
+    </div>
+</div>
+<div class="form-group">
+    <label for="Cell" class="col-sm-2 control-label">Cell</label>
+    <div class="col-sm-10">
+        <input type="tel" class="form-control input-sm" id="Cell" name="Cell" placeholder="Cell (999-999-9999)" maxlength="30" value="<?php echo $csn->Cell; ?>">
+    </div>
+</div>
+<div class="form-group">
+    <label for="Home" class="col-sm-2 control-label">Home</label>
+    <div class="col-sm-10">
+        <input type="tel" class="form-control input-sm" id="Home" name="Home" placeholder="Home (999-999-9999)" maxlength="30" value="<?php echo $csn->Home; ?>">
+    </div>
+</div>
+<!--
+<div class="form-group">
+    <label for="Veteran" class="col-sm-2 control-label">Are you a veteran?</label>
+    <div class="col-sm-10">
+        <select id="Veteran" name="Veteran" size="1" class="form-control input-sm">
+            <option value="" selected>Select an item</option>
+            <?php # $csn->utils->build_dropdown($csn->veteran_status, ($csn->Veteran ? $csn->Veteran : '')); ?>
+        </select>
+    </div>
+</div>
+-->
+<!--
+<div class="form-group">
+    <label for="PreferredJobTitle" class="col-sm-2 control-label">Preferred Job Title</label>
+    <div class="col-sm-10">
+        <input type="text" class="form-control input-sm" id="PreferredJobTitle" name="PreferredJobTitle" 
+            placeholder="Preferred Job Title" value="<?php # echo $csn->PreferredJobTitle; ?>">
+    </div>
+</div>
+-->
+
+<hr>
+
+<div class="form-group">
+    <label for="StatusIdType" class="col-sm-2 control-label">Membership Status</label>
+    <div class="col-sm-10">
+<select id="StatusIdType" name="StatusIdType" size="1" class="form-control input-sm">
+<!-- <option value="">Select an item</option> -->
+<?php $csn->utils->build_dropdown($csn->csn_utils->status_types, ($csn->statusTypeId ? $csn->statusTypeId : '3')); ?>
+</select>
+    </div>
+</div>
+
+<div class="form-group">
+    <label for="PSGJoinedDate" class="col-sm-2 control-label">Joined Date</label>
+    <div class="col-sm-10">
+        <input type="text" class="form-control input-sm" id="PSGJoinedDate" name="PSGJoinedDate" 
+            placeholder="Joined Date (MM/DD/YYYY)" value="<?php echo $csn->PSGJoinedDate; ?>" maxlength="10">
+    </div>
+</div>
+
+<div class="form-group">
+    <label for="ReferredBy" class="col-sm-2 control-label">Referred By</label>
+    <div class="col-sm-10">
+        <input type="text" class="form-control input-sm" id="ReferredBy" name="ReferredBy" maxlength="50" 
+            placeholder="Referred By" value="<?php echo $csn->ReferredBy; ?>">
+    </div>
+</div>
+
+<div class="form-group">
+    <label for="EmeritusNo" class="col-sm-2 control-label">Emeritus</label>
+    <div class="col-sm-10">
+        <input type="radio" id="EmeritusNo" name="Emeritus" value="0" <?php echo (($csn->Emeritus == 0) ? 'checked="checked"' : ''); ?> ><span>No</span>
+        <input type="radio" id="EmeritusYes" name="Emeritus" value="1" <?php echo (($csn->Emeritus == 1) ? 'checked="checked"' : ''); ?> ><span>Yes</span>
+    </div>
+</div>
+
+
+</div>
+<!-- ****************************************************************************************** -->
+<!-- end contact tab panel -->
+<!-- ****************************************************************************************** -->
+    
+<!-- ****************************************************************************************** -->
+<!-- begin attendance tab panel -->
+<!-- ****************************************************************************************** -->
+<div role="tabpanel" class="tab-pane" id="attendance">
+<?php echo $csn->attendance; ?>
+</div>
+<!-- ****************************************************************************************** -->
+<!-- end attendance tab panel -->
+<!-- ****************************************************************************************** -->
+    
+<!-- ****************************************************************************************** -->
+<!-- begin job skills tab panel -->
+<!-- ****************************************************************************************** -->
+<div role="tabpanel" class="tab-pane" id="jobSkillsAndBio">
+
+<div class="form-group">
+    <label for="JobSkills" class="col-sm-2 control-label">Job Skills</label>
+    <div class="col-sm-10">
+        <input type="text" class="form-control input-sm" id="JobSkills" name="JobSkills" placeholder="Job Skills" maxlength="255" value="<?php echo $csn->JobSkills; ?>">
+    </div>
+</div>
+
+<div class="form-group">
+    <label for="JobTitles" class="col-sm-2 control-label">Job Titles</label>
+    <div class="col-sm-10">
+        <input type="text" class="form-control input-sm" id="JobTitles" name="JobTitles" placeholder="Job Titles" maxlength="255" value="<?php echo $csn->JobTitles; ?>">
+    </div>
+</div>
+
+<div class="form-group">
+    <label for="SpecialTraining" class="col-sm-2 control-label">Special Training</label>
+    <div class="col-sm-10">
+        <input type="text" class="form-control input-sm" id="SpecialTraining" name="SpecialTraining" placeholder="Special Training" maxlength="255" value="<?php echo $csn->SpecialTraining; ?>">
+    </div>
+</div>
+
+<div class="form-group">
+    <label for="BriefBio" class="col-sm-2 control-label">Brief Bio</label>
+    <div class="col-sm-10">
+        <textarea class="form-control input-sm" rows="5" id="BriefBio" name="BriefBio"><?php echo $csn->BriefBio; ?></textarea>
+    </div>
+</div>
+    
+</div>
+<!-- ****************************************************************************************** -->
+<!-- end job skills tab panel -->
+<!-- ****************************************************************************************** -->
+
+<!-- ****************************************************************************************** -->
+<!-- begin training tab panel -->
+<!-- ****************************************************************************************** -->
+<div role="tabpanel" class="tab-pane" id="training">
+<?php echo $csn->training; ?>
+        
+<div class="form-group">
+    <label for="PSGReq1Date" class="col-sm-2 control-label">Training Day 1</label>
+    <div class="col-sm-10">
+        <div class="row">
+            <label for="PSGReq1Date" class="col-md-1 control-label">Date</label>
+            <div class="col-md-3">
+                <input type="text" class="form-control input-sm" id="PSGReq1Date" name="PSGReq1Date" placeholder="MM/DD/YYYY" maxlength="10" 
+                    value="<?php echo $csn->PSGReq1Date; ?>">
+            </div>
+            <label for="PSGReq1" class="col-md-1 control-label">Course</label>
+            <div class="col-md-7">
+                <select id="PSGReq1" name="PSGReq1" size="1" class="form-control input-sm">
+                    <option value="" selected>Select an item</option>
+                    <?php $csn->utils->build_dropdown($csn->csn_utils->act_training, ($csn->PSGReq1 ? $csn->PSGReq1 : '')); ?>
+                </select>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="form-group">
+    <label for="PSGReq2Date" class="col-sm-2 control-label">Training Day 2</label>
+    <div class="col-sm-10">
+        <div class="row">
+            <label for="PSGReq2Date" class="col-md-1 control-label">Date</label>
+            <div class="col-md-3">
+                <input type="text" class="form-control input-sm" id="PSGReq2Date" name="PSGReq2Date" placeholder="MM/DD/YYYY" maxlength="10" 
+                    value="<?php echo $csn->PSGReq2Date; ?>">
+            </div>
+            <label for="PSGReq2" class="col-md-1 control-label">Course</label>
+            <div class="col-md-7">
+                <select id="PSGReq2" name="PSGReq2" size="1" class="form-control input-sm">
+                    <option value="" selected>Select an item</option>
+                    <?php $csn->utils->build_dropdown($csn->csn_utils->act_training, ($csn->PSGReq2 ? $csn->PSGReq2 : '')); ?>
+                </select>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="form-group">
+    <label for="PSGReq3Date" class="col-sm-2 control-label">Training Day 3</label>
+    <div class="col-sm-10">
+    
+        <div class="row">
+            <label for="PSGReq3Date" class="col-md-1 control-label">Date</label>
+            <div class="col-md-3">
+                <input type="text" class="form-control input-sm" id="PSGReq3Date" name="PSGReq3Date" placeholder="MM/DD/YYYY" maxlength="10" 
+                    value="<?php echo $csn->PSGReq3Date; ?>">
+            </div>
+            <label for="PSGReq3" class="col-md-1 control-label">Course</label>
+            <div class="col-md-7">
+                <select id="PSGReq3" name="PSGReq3" size="1" class="form-control input-sm">
+                    <option value="" selected>Select an item</option>
+                    <?php $csn->utils->build_dropdown($csn->csn_utils->act_training, ($csn->PSGReq3 ? $csn->PSGReq3 : '')); ?>
+                </select>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<div class="form-group">
+    <label for="PSGReq4Date" class="col-sm-2 control-label">Training Day 4</label>
+    <div class="col-sm-10">
+        <div class="row">
+            <label for="PSGReq4Date" class="col-md-1 control-label">Date</label>
+            <div class="col-md-3">
+                <input type="text" class="form-control input-sm" id="PSGReq4Date" name="PSGReq4Date" placeholder="MM/DD/YYYY" maxlength="10" 
+                    value="<?php echo $csn->PSGReq4Date; ?>">
+            </div>
+            <label for="PSGReq4" class="col-md-1 control-label">Course</label>
+            <div class="col-md-7">
+                <select id="PSGReq4" name="PSGReq4" size="1" class="form-control input-sm">
+                    <option value="" selected>Select an item</option>
+                    <?php $csn->utils->build_dropdown($csn->csn_utils->act_training, ($csn->PSGReq4 ? $csn->PSGReq4 : '')); ?>
+                </select>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="form-group">
+    <label for="PSGReq5Date" class="col-sm-2 control-label">Training Day 5</label>
+    <div class="col-sm-10">
+        <div class="row">
+            <label for="PSGReq5Date" class="col-md-1 control-label">Date</label>
+            <div class="col-md-3">
+                <input type="text" class="form-control input-sm" id="PSGReq5Date" name="PSGReq5Date" placeholder="MM/DD/YYYY" maxlength="10" 
+                    value="<?php echo $csn->PSGReq5Date; ?>">
+            </div>
+            <label for="PSGReq5" class="col-md-1 control-label">Course</label>
+            <div class="col-md-7">
+                <select id="PSGReq5" name="PSGReq5" size="1" class="form-control input-sm">
+                    <option value="" selected>Select an item</option>
+                    <?php $csn->utils->build_dropdown($csn->csn_utils->act_training, ($csn->PSGReq5 ? $csn->PSGReq5 : '')); ?>
+                </select>
+            </div>
+        </div>
+    </div>
+</div>
+        
+</div>
+<!-- ****************************************************************************************** -->
+<!-- end training tab panel -->
+<!-- ****************************************************************************************** -->
+    
+<!-- ****************************************************************************************** -->
+<!-- begin committees tab panel -->
+<!-- ****************************************************************************************** -->
+<!--
+<div role="tabpanel" class="tab-pane" id="committees">
+    <h3>Committees</h3>
+    <p>
+Praesent risus dolor, scelerisque vitae molestie non, euismod in est. Nullam consequat massa magna, ac tincidunt massa porttitor ac. Curabitur scelerisque feugiat quam, a gravida massa posuere vel. Praesent iaculis convallis quam, bibendum porta orci blandit non. Mauris hendrerit ex ligula, quis convallis arcu interdum a. Maecenas consectetur semper sem, ut cursus leo volutpat vitae. Morbi velit ligula, consectetur a consectetur vel, consectetur ut metus. Fusce quis felis nec orci vestibulum pretium consequat in leo. 
+    </p>
+</div>
+-->
+<!-- ****************************************************************************************** -->
+<!-- end committees tab panel -->
+<!-- ****************************************************************************************** -->
+
+<!-- ****************************************************************************************** -->
+<!-- begin landings tab panel -->
+<!-- ****************************************************************************************** -->
+<div role="tabpanel" class="tab-pane" id="landings">
+<?php echo $csn->landings; ?>
+</div>
+<!-- ****************************************************************************************** -->
+<!-- end landings tab panel -->
+<!-- ****************************************************************************************** -->
+    
+<!-- ****************************************************************************************** -->
+<!-- begin notes tab panel -->
+<!-- ****************************************************************************************** -->
+<div role="tabpanel" class="tab-pane" id="notes">
+
+<div class="form-group">
+    <label for="Notes" class="col-sm-2 control-label">Notes</label>
+    <div class="col-sm-10">
+        <textarea class="form-control input-sm" rows="5" id="Notes" name="Notes"><?php echo $csn->Notes; ?></textarea>
+    </div>
+</div>
+
+<div class="form-group">
+    <label for="MemberNotes" class="col-sm-2 control-label">Member Notes</label>
+    <div class="col-sm-10">
+        <textarea class="form-control input-sm" rows="5" id="MemberNotes" name="MemberNotes"><?php echo $csn->MemberNotes; ?></textarea>
+    </div>
+</div>
+        
+</div>
+<!-- ****************************************************************************************** -->
+<!-- end notes tab panel -->
+<!-- ****************************************************************************************** -->
+    
+</div>
+<!-- ****************************************************************************************** -->
+<!-- end tab content panes -->
+<!-- ****************************************************************************************** -->
+  
+
+<?php if($csn->mode == 'DELETE') : ?>
+</fieldset>
+<!-- ****************************************************************************************** -->
+<!-- end fieldset -->
+<!-- ****************************************************************************************** -->
+<?php endif; ?>
+
+    </div>
+    
+    <!-- end left column -->
+    <!-- begin right column -->
+        
+    <div class="col-md-3">
+
+<div class="form-group">
+    <div class="col-sm-offset-2 col-sm-10">
+
+<?php if($csn->mode == 'INSERT') : ?>
+    <button id="membershipInsertButton" name="membershipInsertButton" type="submit" class="btn btn-block btn-primary">Insert</button>
+    <button id="membershipClearButton"  name="membershipClearButton"  type="reset"  class="btn btn-block btn-default">Clear</button>
+<?php elseif($csn->mode == 'EDIT') : ?>
+    <button id="membershipUpdateButton" name="membershipUpdateButton" type="submit" class="btn btn-block btn-primary">Update</button>
+    <button id="membershipDeleteButton" name="membershipDeleteButton" type="submit" class="btn btn-block btn-warning">Delete</button>
+    <button id="membershipClearButton"  name="membershipClearButton"  type="submit" class="btn btn-block btn-default">Clear</button>
+<?php elseif($csn->mode == 'UPDATE') : ?>
+    <button id="membershipUpdateButton" name="membershipUpdateButton" type="submit" class="btn btn-block btn-primary">Update</button>
+    <button id="membershipClearButton"  name="membershipClearButton"  type="submit" class="btn btn-block btn-default">Clear</button>
+<?php elseif($csn->mode == 'DELETE') : ?>
+    <button id="membershipDeleteButton" name="membershipDeleteButton" type="submit" class="btn btn-block btn-warning">Delete</button>
+    <button id="membershipClearButton"  name="membershipClearButton"  type="submit" class="btn btn-block btn-default">Clear</button>
+<?php elseif($csn->mode == 'ERROR') : ?>
+    <a id="membershipFormAlert" class="btn btn-block btn-danger" href="mailto:technology@www.careerseguenetwork.org" role="button">Report Problem</a>
+<?php else : ?>
+    <a id="membershipFormAlert" class="btn btn-block btn-danger" href="mailto:technology@www.careerseguenetwork.org" role="button">Report Problem</a>
+<?php endif; ?>
+
+    </div>
+</div>
+        
+    </div>
+    <!-- end right column -->
+</div>
+<!-- end row -->
+
+    </form>
+</section>
+<!-- ****************************************************************************************** -->
+<!-- end membership form -->
+<!-- ****************************************************************************************** -->
+
+
+<!-- ****************************************************************************************** -->
+<!-- begin landing modal -->
+<!-- ****************************************************************************************** -->
+<div class="modal fade" id="landing-modal" tabindex="-1" role="dialog" aria-labelledby="landing-modal-label">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+        <h4 class="modal-title" id="landing-modal-label">Landing Form - TBD</h4>
+      </div>
+      <div class="modal-body">
+        
+
+<form class="form-horizontal" id="landingFormForm" name="landingFormForm" action="" method="POST">
+
+<input type="hidden" id="landingFormFormStatusId" name="landingFormFormStatusId" value="<?php echo $csn->statusId; ?>">
+<input type="hidden" id="landingFormFormLandedId" name="landingFormFormLandedId" value="<?php echo $csn->landedId; ?>">
+<input type="hidden" id="landingFormFormAction"   name="landingFormFormAction"   value="">
+
+
+
+<div class="form-group">
+    <label for="L_MDate" class="col-sm-3 control-label">Date of Form<span class="required">*</span></label>
+    <div class="col-sm-9">
+        <input type="text" class="form-control input-sm" id="L_MDate" name="L_MDate" placeholder="mm/dd/yyyy" value="<?php echo $csn->L_MDate; ?>" autocomplete="off" required>
+    </div>
+</div>
+
+<div class="form-group">
+    <label for="L_LDate" class="col-sm-3 control-label">Start Date<span class="required">*</span></label>
+    <div class="col-sm-9">
+        <input type="text" class="form-control input-sm" id="L_LDate" name="L_LDate" placeholder="mm/dd/yyyy" value="<?php echo $csn->L_LDate; ?>" autocomplete="off" required>
+    </div>
+</div>
+<div class="form-group">
+    <label for="L_LCName" class="col-sm-3 control-label">Company Name<span class="required">*</span></label>
+    <div class="col-sm-9">
+        <input type="text" class="form-control input-sm" id="L_LCName" name="L_LCName" placeholder="Company Name" value="<?php echo $csn->L_LCName; ?>" size="250" maxlength="250" required>
+    </div>
+</div>
+<div class="form-group">
+    <label for="L_LJobTitle" class="col-sm-3 control-label">Job Title<span class="required">*</span></label>
+    <div class="col-sm-9">
+        <input type="text" class="form-control input-sm" id="L_LJobTitle" name="L_LJobTitle" placeholder="Job Title" value="<?php echo $csn->L_LJobTitle; ?>" size="250" maxlength="250" required>
+    </div>
+</div>
+<div class="form-group">
+    <label for="L_LCity" class="col-sm-3 control-label">City</label>
+    <div class="col-sm-9">
+        <input type="text" class="form-control input-sm" id="L_LCity" name="L_LCity" placeholder="City" value="<?php echo $csn->L_LCity; ?>" size="50" maxlength="50">
+    </div>
+</div>
+<div class="form-group">
+    <label for="L_LState" class="col-sm-3 control-label">State</label>
+    <div class="col-sm-9">
+<select id="L_LState" name="L_LState" size="1" class="form-control input-sm">
+<option value="" selected>Select an item</option>
+
+<?php $csn->utils->build_dropdown($csn->us_states, ($csn->L_LState ? $csn->L_LState : '')); ?>
+
+</select>
+        </div>
+</div>
+<div class="form-group">
+    <label for="L_LZip" class="col-sm-3 control-label">Zip Code</label>
+    <div class="col-sm-9">
+        <input type="text" class="form-control input-sm" id="L_LZip" name="L_LZip" placeholder="Zip Code" value="<?php echo $csn->L_LZip; ?>" size="20" maxlength="20">
+    </div>
+</div>
+<div class="form-group">
+    <label for="L_LRemote" class="col-sm-3 control-label">Remote (work from home?)</label>
+    <div class="col-sm-9">
+<select id="L_LRemote" name="L_LRemote" size="1" class="form-control input-sm">
+<option value="" selected>Select an item</option>
+
+<?php $csn->utils->build_dropdown($csn->work_remote, ($csn->L_LRemote ? $csn->L_LRemote : '')); ?>
+
+</select>
+</div>
+</div>
+<div class="form-group">
+    <label for="L_LEmployment" class="col-sm-3 control-label">Employment Type</label>
+    <div class="col-sm-9">
+<select id="L_LEmployment" name="L_LEmployment" size="1" class="form-control input-sm">
+<option value="" selected>Select an item</option>
+
+<?php $csn->utils->build_dropdown($csn->employment_type, ($csn->L_LEmployment ? $csn->L_LEmployment : '')); ?>
+
+</select>
+</div>
+</div>
+
+<div class="form-group">
+    <label for="L_LStatus" class="col-sm-3 control-label">Employment Status</label>
+    <div class="col-sm-9">
+        <select id="L_LStatus" name="L_LStatus" size="1" class="form-control input-sm">
+            <option value="" selected>Select an item</option>
+            <?php $csn->utils->build_dropdown($csn->employment_status, ($csn->L_LStatus ? $csn->L_LStatus : '')); ?>
+        </select>
+    </div>
+</div>
+
+<div class="form-group">
+    <label for="L_LEmpTimeY" class="col-sm-3 control-label">Length of Term or Contract</label>
+    <div class="col-sm-9">
+    
+        <label for="L_LEmpTimeY" class="col-sm-3 control-label">Years</label>
+        <div class="col-sm-9">
+            <input type="number" class="form-control input-sm" id="L_LEmpTimeY" name="L_LEmpTimeY" placeholder="Years" value="<?php echo $csn->L_LEmpTimeY; ?>" min="0" max="10">
+        </div>
+        
+        <label for="L_LEmpTimeM" class="col-sm-3 control-label">Months</label>
+        <div class="col-sm-9">
+            <input type="number" class="form-control input-sm" id="L_LEmpTimeM" name="L_LEmpTimeM" placeholder="Months" value="<?php echo $csn->L_LEmpTimeM; ?>" min="0" max="10">
+        </div>
+        
+    </div>
+</div>
+
+<div class="form-group">
+    <label for="L_LStaffA" class="col-sm-3 control-label">Staffing Agency or Recruiter Name</label>
+    <div class="col-sm-9">
+        <input type="text" class="form-control input-sm" id="L_LStaffA" name="L_LStaffA" placeholder="Staffing Agency or Recruiter Name" value="<?php echo $csn->L_LStaffA; ?>" size="50" maxlength="50">
+    </div>
+</div>
+
+<div class="form-group">
+    <label for="L_LandedM" class="col-sm-3 control-label">Landed Method</label>
+    <div class="col-sm-9">
+    
+        <select id="L_LandedM" name="L_LandedM" size="1" class="form-control input-sm">
+            <option value="" selected>Select an item</option>
+            <?php $csn->utils->build_dropdown($csn->landed_method, ($csn->L_LandedM ? $csn->L_LandedM : '')); ?>
+        </select>
+
+        <label for="L_Other" class="col-sm-3 control-label">Other</label>
+        <div class="col-sm-9">
+            <input type="text" class="form-control input-sm" id="L_Other" name="L_Other" placeholder="Other" value="<?php echo $csn->L_Other; ?>" size="250" maxlength="250">
+        </div>
+        
+    </div>
+</div>
+
+<div class="form-group">
+    <label for="LJSTimeY" class="col-sm-3 control-label">Length of Search</label>
+    <div class="col-sm-9">
+    
+        <label for="LJSTimeY" class="col-sm-3 control-label">Years</label>
+        <div class="col-sm-9">
+            <input type="number" class="form-control input-sm" id="LJSTimeY" name="LJSTimeY" placeholder="Years" value="<?php echo $csn->LJSTimeY; ?>" min="0" max="10">
+        </div>
+        
+        <label for="LJSTimeM" class="col-sm-3 control-label">Months</label>
+        <div class="col-sm-9">
+            <input type="number" class="form-control input-sm" id="LJSTimeM" name="LJSTimeM" placeholder="Months" value="<?php echo $csn->LJSTimeM; ?>" min="0" max="10">
+        </div>
+        
+    </div>
+</div>
+
+<div class="form-group">
+    <label for="FutureJS" class="col-sm-3 control-label">Future Job Search Plans</label>
+    <div class="col-sm-9">
+        <select id="FutureJS" name="FutureJS" size="1" class="form-control input-sm">
+            <option value="" selected>Select an item</option>
+            <?php $csn->utils->build_dropdown($csn->future_job_search_plans, ($csn->FutureJS ? $csn->FutureJS : '')); ?>
+        </select>
+    </div>
+</div>
+
+<div class="form-group">
+    <label for="LShareC" class="col-sm-3 control-label">Share Contact Information</label>
+    <div class="col-sm-9">
+    
+        <select id="LShareC" name="LShareC" size="1" class="form-control input-sm">
+            <option value="" selected>Select an item</option>
+            <?php $csn->utils->build_dropdown($csn->share_contact_information, ($csn->LShareC ? $csn->LShareC : '')); ?>
+        </select>
+
+        <label for="LEmail" class="col-sm-3 control-label">Email</label>
+        <div class="col-sm-9">
+            <input type="email" class="form-control input-sm" id="LEmail" name="LEmail" placeholder="Email" value="<?php echo $csn->LEmail; ?>" size="250" maxlength="250">
+        </div>
+        <label for="LPhone" class="col-sm-3 control-label">Phone</label>
+        <div class="col-sm-9">
+            <input type="tel" class="form-control input-sm" id="LPhone" name="LPhone" placeholder="999-999-9999" value="<?php echo $csn->LPhone; ?>" size="250" maxlength="250">
+        </div>
+        
+    </div>
+</div>
+        
+</form>
+
+        
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary">OK</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- ****************************************************************************************** -->
+<!-- end landing modal -->
+<!-- ****************************************************************************************** -->
+
+<!-- ****************************************************************************************** -->
+<!-- begin attendance modal -->
+<!-- ****************************************************************************************** -->
+<div class="modal fade" id="attendance-modal" tabindex="-1" role="dialog" aria-labelledby="attendance-modal-label">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+        <h4 class="modal-title" id="attendance-modal-label">Attendance Form - TBD</h4>
+      </div>
+      <div class="modal-body">
+        
+
+<form class="form-horizontal" id="committeeAttendanceForm" name="committeeAttendanceForm" action="" method="POST">
+
+<input type="hidden" id="committeeAttendanceFormStatusId"     name="committeeAttendanceFormStatusId"     value="<?php echo $csn->statusId; ?>">
+<input type="hidden" id="committeeAttendanceFormAttendanceId" name="committeeAttendanceFormAttendanceId" value="<?php echo $csn->attendanceId; ?>">
+<input type="hidden" id="committeeAttendanceFormAction"       name="committeeAttendanceFormAction"       value="">
+
+
+<div class="form-group">
+    <label for="CA_FName" class="col-sm-3 control-label">First Name</label>
+    <div class="col-sm-9">
+        <input type="text" class="form-control input-sm" id="CA_FName" name="CA_FName" placeholder="First Name" value="<?php echo $csn->FName; ?>" readonly>
+    </div>
+</div>
+
+<div class="form-group">
+    <label for="CA_LName" class="col-sm-3 control-label">Last Name</label>
+    <div class="col-sm-9">
+        <input type="text" class="form-control input-sm" id="CA_LName" name="CA_LName" placeholder="Last Name" value="<?php echo $csn->LName; ?>" readonly>
+    </div>
+</div>
+
+<div class="form-group">
+    <label for="CA_MDate" class="col-sm-3 control-label">Meeting Date<span class="required">*</span></label>
+    <div class="col-sm-9">
+        <input type="text" class="form-control input-sm" id="CA_MDate" name="CA_MDate" placeholder="MM/DD/YYYY" maxlength="10" autocomplete="off" 
+            value="<?php echo $csn->CA_MDate; ?>" required>
+    </div>
+</div>
+  
+<div class="form-group">
+    <label for="CA_Committee" class="col-sm-3 control-label">Committee<span class="required">*</span></label>
+    <div class="col-sm-9">
+        <select id="CA_Committee" name="CA_Committee" class="form-control input-sm">
+            <option value="" selected>Select an item</option>
+            <?php $csn->utils->build_dropdown($csn->csn_utils->committees, ($csn->Committee ? $csn->Committee : '')); ?>
+        </select>
+    </div>
+</div>
+  
+<div class="form-group">
+    <label for="CA_SubCom" class="col-sm-3 control-label">Sub-Committee</label>
+    <div class="col-sm-9">
+        <input type="text" class="form-control input-sm" id="CA_SubCom" name="CA_SubCom" placeholder="Enter sub-committee if needed" value="<?php echo $csn->CA_SubCom; ?>">
+    </div>
+</div>
+
+<div class="form-group">
+    <label for="CA_Role" class="col-sm-3 control-label">Role<span class="required">*</span></label>
+    <div class="col-sm-9">
+        <select id="CA_Role" name="CA_Role" class="form-control input-sm">
+            <option value="" selected>Select an item</option>
+            <?php $csn->utils->build_dropdown($csn->csn_utils->roles, ($csn->Role ? $csn->Role : '')); ?>
+        </select>
+    </div>
+</div>
+
+<div class="form-group">
+    <label for="CA_MType" class="col-sm-3 control-label">Meeting Type<span class="required">*</span></label>
+    <div class="col-sm-9">
+        <select id="CA_MType" name="CA_MType" class="form-control input-sm">
+            <option value="" selected>Select an item</option>
+            <?php $csn->utils->build_dropdown($csn->csn_utils->meeting_types, ($csn->MType ? $csn->MType : '')); ?>
+        </select>
+    </div>
+</div>
+  
+<div class="form-group">
+    <label for="CA_Hours" class="col-sm-3 control-label">Hours<span class="required">*</span></label>
+    <div class="col-sm-9">
+        <input type="number" class="form-control input-sm" id="CA_Hours" name="CA_Hours" placeholder="Enter hours" min="0.0" max="12.0" step="0.5" 
+            value="<?php echo $csn->CA_Hours; ?>" required>
+    </div>
+</div>
+
+<div class="form-group">
+    <label for="CA_Comment" class="col-sm-3 control-label">Comment</label>
+    <div class="col-sm-9">
+        <textarea id="CA_Comment" name="CA_Comment" rows="4" class="form-control input-sm"><?php echo $csn->CA_Comment; ?></textarea>
+    </div>
+</div>
+
+</form>
+
+        
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary">OK</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- ****************************************************************************************** -->
+<!-- end attendance modal -->
+<!-- ****************************************************************************************** -->
+
+<!-- ****************************************************************************************** -->
+<!-- begin training modal -->
+<!-- ****************************************************************************************** -->
+<div class="modal fade" id="training-modal" tabindex="-1" role="dialog" aria-labelledby="training-modal-label">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+        <h4 class="modal-title" id="training-modal-label">Training Form - TBD</h4>
+      </div>
+      <div class="modal-body">
+        
+<!--
+<form class="form-horizontal" id="trainingForm" name="trainingForm" action="" method="POST">
+
+<input type="hidden" id="trainingFormStatusId"   name="trainingFormStatusId"   value="<?php echo $csn->statusId; ?>">
+<input type="hidden" id="trainingFormTrainingId" name="trainingFormTrainingId" value="<?php echo $csn->trainingId; ?>">
+<input type="hidden" id="trainingFormAction"     name="trainingFormAction"     value="">
+
+</form>
+-->
+
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary">OK</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- ****************************************************************************************** -->
+<!-- end training modal -->
+<!-- ****************************************************************************************** -->
+
+</div>
+<!-- end container -->
+
+<?php include("footer.php"); ?>
